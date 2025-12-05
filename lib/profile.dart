@@ -1,220 +1,162 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'main.dart'; // para acceder a LogoRotate (ajusta la ruta si tu main.dart está en otro lugar)
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'profile_controller.dart';
+
+class LogoRotate extends StatefulWidget {
+  final ProfileController? controller;
+  const LogoRotate({super.key, this.controller});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<LogoRotate> createState() => _LogoRotateState();
 }
 
-class _LoginPageState extends State<LoginPage> {
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  bool _loading = false;
+class _LogoRotateState extends State<LogoRotate> {
+  late final ProfileController _controller;
 
   @override
-  void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+
+    _controller = widget.controller ?? ProfileController();
+
+    _controller.loadSavedProfilePhoto().then((url) {
+      if (url != null && mounted) setState(() {});
+    }).catchError((_) {});
   }
 
-  Future<void> _setLoading(bool v) async {
-    if (!mounted) return;
-    setState(() => _loading = v);
-  }
-
-  Future<void> loginWithEmail() async {
-    await _setLoading(true);
+  Future<void> _pickAndUpload(ImageSource source) async {
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login exitoso')),
-      );
-
-      // Redirection to home (tu pantalla LogoRotate)
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LogoRotate()),
-      );
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Error de autenticación')),
-      );
+      final result = await _controller.pickAndUploadImage(source);
+      if (result != null) {
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de perfil actualizada')),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se actualizó la imagen')),
+        );
+      }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error inesperado: $e')),
       );
-    } finally {
-      await _setLoading(false);
     }
   }
 
-  Future<void> loginWithGoogle() async {
-    await _setLoading(true);
-    try {
-      // Para Android/iOS con google-services.json / GoogleService-Info.plist
-      // normalmente NO necesitas pasar clientId aquí.
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-      if (googleUser == null) {
-        // Usuario canceló
-        await _setLoading(false);
-        return;
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      await FirebaseAuth.instance.signInWithCredential(credential);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login con Google exitoso')),
-      );
-
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LogoRotate()),
-      );
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('FirebaseAuth: ${e.message ?? e.code}')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
-    } finally {
-      await _setLoading(false);
-    }
+  void _showPickOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Tomar foto'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _pickAndUpload(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Elegir de la galería'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _pickAndUpload(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.cancel),
+                title: const Text('Cancelar'),
+                onTap: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = _controller;
+    const double imageSize = 180.0;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      appBar: AppBar(title: const Text('Perfil')),
       body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 50),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 55,
-                child: Image.asset('assets/images/profile.jpg'),
-              ),
-              const SizedBox(height: 30),
-              const Text(
-                'Bienvenido',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Text(
+                  'nombre de usuario',
+                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Inicia sesión para continuar',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 40),
-              TextField(
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.email_outlined),
-                  labelText: 'Correo electrónico',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () {
+                    
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                ClipOval(
+                  child: SizedBox(
+                    height: imageSize,
+                    width: imageSize,
+                    child: controller.localImage != null
+                        ? Image.file(controller.localImage!, fit: BoxFit.cover)
+                        : Image.network(controller.imageUrl, fit: BoxFit.cover),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  labelText: 'Contraseña',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _loading ? null : loginWithEmail,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
+
+                if (controller.uploading)
+                  Container(
+                    height: imageSize,
+                    width: imageSize,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                      shape: BoxShape.circle,
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    alignment: Alignment.center,
+                    child: const CircularProgressIndicator(),
                   ),
-                  child: _loading
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Iniciar sesión',
-                          style: TextStyle(fontSize: 18, color: Colors.white),
-                        ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: const [
-                  Expanded(child: Divider(thickness: 1, endIndent: 10)),
-                  Text('O continúa con'),
-                  Expanded(child: Divider(thickness: 1, indent: 10)),
-                ],
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                onPressed: _loading ? null : loginWithGoogle,
-                icon: Image.network(
-                  'https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_%22G%22_Logo.svg/512px-Google_%22G%22_Logo.svg.png',
-                  height: 24,
-                ),
-                label: const Text('Iniciar sesión con Google'),
-                style: OutlinedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
-                  side: const BorderSide(color: Colors.deepPurple),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
+
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: FloatingActionButton(
+                    heroTag: 'changePhoto',
+                    mini: true,
+                    onPressed: controller.uploading ? null : _showPickOptions,
+                    child: const Icon(Icons.camera_alt),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            Text(
+              'correo electronico',
+              style: TextStyle(fontSize: 20, color: Colors.grey[600]),
+            ),
+          ],
         ),
       ),
     );

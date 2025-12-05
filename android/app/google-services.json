@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "44916580978",
+    "project_id": "habito-movil",
+    "storage_bucket": "habito-movil.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:44916580978:android:2250620b331b7cf9f8d8eb",
+        "android_client_info": {
+          "package_name": "com.example.control_habitos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbNyecFIZ9eSTPup0yu1H6sLM99qAhZ7I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'profile_controller.dart';
-
+import 'login.dart';
 class LogoRotate extends StatefulWidget {
   final ProfileController? controller;
   const LogoRotate({super.key, this.controller});
@@ -21,6 +21,15 @@ class _LogoRotateState extends State<LogoRotate> {
     _controller = widget.controller ?? ProfileController();
     _loadProfile();
   }
+
+  Future<void> _logout() async {
+  await _controller.logout();
+  if (!mounted) return;
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (_) => const LoginPage()),
+  );
+}
 
   Future<void> _loadProfile() async {
     await _controller.loadSavedProfile();
@@ -223,7 +232,21 @@ class _LogoRotateState extends State<LogoRotate> {
             setState(() {});
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferencia guardada')));
           },
+          
         ),
+        const SizedBox(height: 20),
+ElevatedButton.icon(
+  onPressed: _logout,
+  icon: const Icon(Icons.logout),
+  label: const Text('Cerrar sesión'),
+  style: ElevatedButton.styleFrom(
+    backgroundColor: Colors.red,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ),
+),
+
       ],
     );
   }

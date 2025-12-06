@@ -1,10 +1,11 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
 import 'register.dart';
+import 'profile.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
@@ -113,73 +114,76 @@ class _HabitsPageState extends State<HabitsPage> {
         elevation: 0,
         centerTitle: true,
       ),
-      body: Column(
-        children: [
-          // Calendario horizontal
-          _buildCalendar(),
-          
-          // Contenido principal
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _service.getHabitsStream(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+      body: _selectedTab == 0
+          ? Column(
+              children: [
+                _buildCalendar(),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _service.getHabitsStream(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                final habits = snapshot.data!.docs;
-                if (habits.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Sin hábitos aún',
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        const Text('¡Crea tu primer hábito!'),
-                      ],
-                    ),
-                  );
-                }
+                      final habits = snapshot.data!.docs;
+                      if (habits.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Sin hábitos aún',
+                                style: Theme.of(context).textTheme.headlineSmall,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text('¡Crea tu primer hábito!'),
+                            ],
+                          ),
+                        );
+                      }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: habits.length,
-                  itemBuilder: (context, i) {
-                    final doc = habits[i];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final name = data['name'] ?? '';
-                    final description = data['description'] ?? '';
-                    final frequency = data['frequency'] ?? 'daily';
-                    final completed = data['completed'] ?? false;
-                    final lastCompleted = data['lastCompleted'];
-                    final progress = data['progress'] ?? 0;
+                      return ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: habits.length,
+                        itemBuilder: (context, i) {
+                          final doc = habits[i];
+                          final data = doc.data() as Map<String, dynamic>;
+                          final name = data['name'] ?? '';
+                          final description = data['description'] ?? '';
+                          final frequency = data['frequency'] ?? 'daily';
+                          final completed = data['completed'] ?? false;
+                          final lastCompleted = data['lastCompleted'];
+                          final progress = data['progress'] ?? 0;
 
-                    return _buildHabitCard(
-                      doc.id,
-                      name,
-                      description,
-                      frequency,
-                      completed,
-                      lastCompleted,
-                      progress,
-                      data,
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addHabit,
-        child: const Icon(Icons.add),
-      ),
+                          return _buildHabitCard(
+                            doc.id,
+                            name,
+                            description,
+                            frequency,
+                            completed,
+                            lastCompleted,
+                            progress,
+                            data,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            )
+          : (_selectedTab == 1
+              ? const StatsPage()
+              : const LogoRotate()),
+      floatingActionButton: _selectedTab == 0
+          ? FloatingActionButton(
+              onPressed: _addHabit,
+              child: const Icon(Icons.add),
+            )
+          : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedTab,
         onTap: (index) => setState(() => _selectedTab = index),
@@ -211,7 +215,7 @@ class _HabitsPageState extends State<HabitsPage> {
               itemBuilder: (context, index) {
                 final date = _selectedDate.subtract(Duration(days: 7 - index));
                 final isSelected = _isSameDay(date, _selectedDate);
-                
+
                 return GestureDetector(
                   onTap: () => setState(() => _selectedDate = date),
                   child: Container(
@@ -316,12 +320,12 @@ class _HabitsPageState extends State<HabitsPage> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.blue,),
+                    icon: const Icon(Icons.edit, color: Colors.blue),
                     tooltip: 'Editar Hábito',
                     onPressed: () => _editHabit(id, data),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red,),
+                    icon: const Icon(Icons.delete, color: Colors.red),
                     tooltip: 'Eliminar Hábito',
                     onPressed: () => _deleteHabit(id),
                   ),
@@ -416,7 +420,6 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 }
 
-// ... resto de los Dialogs igual que antes ...
 class AddHabitDialog extends StatefulWidget {
   const AddHabitDialog({super.key});
 
@@ -597,6 +600,27 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
           child: const Text('Guardar'),
         ),
       ],
+    );
+  }
+}
+
+class StatsPage extends StatelessWidget {
+  const StatsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Estadísticas')),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.show_chart, size: 72, color: Colors.teal),
+            SizedBox(height: 12),
+            Text('Mari ponga las estadisticas jajajaja', style: TextStyle(fontSize: 18)),
+          ],
+        ),
+      ),
     );
   }
 }

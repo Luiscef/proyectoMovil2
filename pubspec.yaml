@@ -39,6 +39,7 @@ dependencies:
   # Ocr package
   google_ml_kit: ^0.17.0
   image_picker: ^1.2.1
+  # flutter_local_notifications: ^13.0.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

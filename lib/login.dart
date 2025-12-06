@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'profile.dart';
+import 'main.dart';
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -42,7 +43,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LogoRotate()),
+        MaterialPageRoute(builder: (_) => const HabitsPage()),
       );
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -86,7 +87,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LogoRotate()),
+        MaterialPageRoute(builder: (_) => const HabitsPage()),
       );
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

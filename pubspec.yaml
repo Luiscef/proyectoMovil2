@@ -36,6 +36,7 @@ dependencies:
   google_sign_in: ^6.1.0
   firebase_storage: 12.4.10
   intl: ^0.20.2
+  
   # Ocr package
   google_ml_kit: ^0.17.0
   image_picker: ^1.2.1

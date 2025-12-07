@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
@@ -20,7 +21,31 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mis Hábitos',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
-      home: const RegisterPage(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasData && snapshot.data != null) {
+          return const HabitsPage();
+        }
+
+        return const RegisterPage();
+      },
     );
   }
 }

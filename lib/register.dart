@@ -1,9 +1,11 @@
 // lib/register.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'profile.dart';
 import 'login.dart';
+import 'main.dart'; // contiene HabitsPage; lo usas también en login.dart
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -23,8 +25,40 @@ class _RegisterPageState extends State<RegisterPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
+  StreamSubscription<User?>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Si ya hay usuario autenticado al abrir la pantalla, saltar a HabitsPage
+    final current = _auth.currentUser;
+    if (current != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HabitsPage()),
+        );
+      });
+      return;
+    }
+
+    // Escuchar cambios en el estado de autenticación para redirigir automáticamente
+    _authSub = _auth.authStateChanges().listen((user) {
+      if (user != null) {
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HabitsPage()),
+          );
+        }
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _authSub?.cancel();
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _passCtrl.dispose();
@@ -42,7 +76,6 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _loading = true);
 
     try {
-      // 1) Crear usuario en FirebaseAuth
       final userCred = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
@@ -51,14 +84,10 @@ class _RegisterPageState extends State<RegisterPage> {
       final user = userCred.user;
       if (user == null) throw Exception('No se pudo crear el usuario');
 
-      // 2) Actualizar displayName en FirebaseAuth (opcional)
       try {
         await user.updateDisplayName(name);
-      } catch (_) {
-        // no fatal
-      }
+      } catch (_) {}
 
-      // 3) Guardar documento en Firestore
       await _fs.collection('users').doc(user.uid).set({
         'displayName': name,
         'email': email,
@@ -66,10 +95,6 @@ class _RegisterPageState extends State<RegisterPage> {
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // 4) Opcional: enviar verificación de correo (puedes activar si quieres)
-      // await user.sendEmailVerification();
-
-      // 5) Navegar a perfil (reemplaza la pila)
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -113,7 +138,6 @@ class _RegisterPageState extends State<RegisterPage> {
               const SizedBox(height: 8),
               const Text('Crear cuenta', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
-
               Form(
                 key: _formKey,
                 child: Column(
@@ -163,7 +187,6 @@ class _RegisterPageState extends State<RegisterPage> {
                         return null;
                       },
                     ),
-
                     const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
@@ -174,13 +197,11 @@ class _RegisterPageState extends State<RegisterPage> {
                             : const Text('Crear cuenta'),
                       ),
                     ),
-
                     const SizedBox(height: 12),
                     TextButton(
                       onPressed: _loading
                           ? null
                           : () {
-                              // volver a login
                               Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()));
                             },
                       child: const Text('¿Ya tienes cuenta? Iniciar sesión'),

@@ -142,6 +142,48 @@ class _HabitsPageState extends State<HabitsPage> {
       body: _selectedTab == 0
           ? Column(
               children: [
+                StreamBuilder<QuerySnapshot>(
+                  stream: _service.getHabitsStream(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const SizedBox(height: 64);
+                    final docs = snapshot.data!.docs;
+                    final total = docs.length;
+                    final completed = docs.where((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      return data['completed'] == true;
+                    }).length;
+                    final percent = total == 0
+                        ? 0
+                        : ((completed / total) * 100).round();
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Tareas: $total',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Chip(
+                            label: Text('Completadas: $completed'),
+                            backgroundColor: Colors.green[50],
+                          ),
+                          const Spacer(),
+                          Text(
+                            '$percent%',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 _buildCalendar(),
                 Expanded(
                   child: StreamBuilder<QuerySnapshot>(
@@ -157,11 +199,17 @@ class _HabitsPageState extends State<HabitsPage> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
+                              Icon(
+                                Icons.favorite_border,
+                                size: 64,
+                                color: Colors.grey[300],
+                              ),
                               const SizedBox(height: 16),
                               Text(
                                 'Sin hábitos aún',
-                                style: Theme.of(context).textTheme.headlineSmall,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineSmall,
                               ),
                               const SizedBox(height: 8),
                               const Text('¡Crea tu primer hábito!'),
@@ -200,9 +248,7 @@ class _HabitsPageState extends State<HabitsPage> {
                 ),
               ],
             )
-          : (_selectedTab == 1
-              ? const StatsPage()
-              : const LogoRotate()),
+          : (_selectedTab == 1 ? const StatsPage() : const LogoRotate()),
       floatingActionButton: _selectedTab == 0
           ? FloatingActionButton(
               onPressed: _addHabit,
@@ -214,7 +260,10 @@ class _HabitsPageState extends State<HabitsPage> {
         onTap: (index) => setState(() => _selectedTab = index),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Estadísticas'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.show_chart),
+            label: 'Estadísticas',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Ajustes'),
         ],
       ),
@@ -317,6 +366,12 @@ class _HabitsPageState extends State<HabitsPage> {
                     value: completed,
                     onChanged: (v) async {
                       await _service.toggleHabitCompleted(id, v ?? false);
+                      if (!mounted) return;
+                      if (v ?? false) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Tarea completada')),
+                        );
+                      }
                     },
                   ),
                   Expanded(
@@ -356,26 +411,28 @@ class _HabitsPageState extends State<HabitsPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Meta: ${_getFrequencyLabel(frequency)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                  ),
-                  if (lastCompleted != null)
-                    Text(
-                      'Último: ${_formatTimestamp(lastCompleted)}',
-                      style: const TextStyle(fontSize: 11, color: Colors.green),
+
+              // Mostrar etiqueta solo si está completado
+              if (completed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0, left: 4.0),
+                  child: Chip(
+                    avatar: const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 18,
                     ),
-                ],
-              ),
+                    label: const Text(
+                      'Tarea completada',
+                      style: TextStyle(color: Colors.green),
+                    ),
+                    backgroundColor: Colors.green[50],
+                  ),
+                ),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('${progress} completados'),
                   Row(
                     children: [
                       CircleAvatar(
@@ -421,8 +478,18 @@ class _HabitsPageState extends State<HabitsPage> {
 
   String _getMonthName(int month) {
     const months = [
-      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-      'jul', 'ago', 'sep', 'oct', 'nov', 'dic'
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
     ];
     return months[month - 1];
   }
@@ -509,7 +576,8 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
                 DropdownMenuItem(value: 'weekly', child: Text('Semanal')),
                 DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
               ],
-              onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
+              onChanged: (v) =>
+                  setState(() => selectedFrequency = v ?? 'daily'),
             ),
           ],
         ),
@@ -604,7 +672,8 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
                 DropdownMenuItem(value: 'weekly', child: Text('Semanal')),
                 DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
               ],
-              onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
+              onChanged: (v) =>
+                  setState(() => selectedFrequency = v ?? 'daily'),
             ),
           ],
         ),
@@ -642,7 +711,10 @@ class StatsPage extends StatelessWidget {
           children: const [
             Icon(Icons.show_chart, size: 72, color: Colors.teal),
             SizedBox(height: 12),
-            Text('Mari ponga las estadisticas jajajaja', style: TextStyle(fontSize: 18)),
+            Text(
+              'Mari ponga las estadisticas jajajaja',
+              style: TextStyle(fontSize: 18),
+            ),
           ],
         ),
       ),

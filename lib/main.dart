@@ -6,6 +6,8 @@ import 'firebase_config.dart';
 import 'firestone_service.dart';
 import 'register.dart';
 import 'profile.dart';
+import 'habit_progress_page.dart';
+import 'habit_history_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +22,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Mis Hábitos',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
       home: const AuthGate(),
     );
@@ -63,7 +66,7 @@ class _HabitsPageState extends State<HabitsPage> {
   DateTime _selectedDate = DateTime.now();
 
   Future<void> _addHabit() async {
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => const AddHabitDialog(),
     );
@@ -73,12 +76,13 @@ class _HabitsPageState extends State<HabitsPage> {
         result['name'] ?? '',
         result['description'] ?? '',
         result['frequency'] ?? 'daily',
+        reminderTime: result['reminderTime'],
       );
     }
   }
 
   Future<void> _editHabit(String id, Map<String, dynamic> habitData) async {
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => EditHabitDialog(habit: habitData),
     );
@@ -89,6 +93,7 @@ class _HabitsPageState extends State<HabitsPage> {
         result['name'] ?? '',
         result['description'] ?? '',
         result['frequency'] ?? 'daily',
+        reminderTime: result['reminderTime'],
       );
     }
   }
@@ -107,7 +112,7 @@ class _HabitsPageState extends State<HabitsPage> {
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Eliminar'),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -116,6 +121,24 @@ class _HabitsPageState extends State<HabitsPage> {
     if (confirm ?? false) {
       await _service.deleteHabit(id);
     }
+  }
+
+  void _viewProgress(String habitId, Map<String, dynamic> habitData) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HabitProgressPage(habitId: habitId, habitData: habitData),
+      ),
+    );
+  }
+
+  void _viewHistory(String habitId, Map<String, dynamic> habitData) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HabitHistoryPage(habitId: habitId, habitData: habitData),
+      ),
+    );
   }
 
   String _formatTimestamp(dynamic ts) {
@@ -133,76 +156,27 @@ class _HabitsPageState extends State<HabitsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis Hábitos'),
         elevation: 0,
         centerTitle: true,
+        actions: [
+          if (_selectedTab == 0)
+            IconButton(
+              icon: const Icon(Icons.person),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfilePage()),
+                );
+              },
+            ),
+        ],
       ),
-      body: _selectedTab == 0
-          ? Column(
-              children: [
-                _buildCalendar(),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: _service.getHabitsStream(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final habits = snapshot.data!.docs;
-                      if (habits.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Sin hábitos aún',
-                                style: Theme.of(context).textTheme.headlineSmall,
-                              ),
-                              const SizedBox(height: 8),
-                              const Text('¡Crea tu primer hábito!'),
-                            ],
-                          ),
-                        );
-                      }
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: habits.length,
-                        itemBuilder: (context, i) {
-                          final doc = habits[i];
-                          final data = doc.data() as Map<String, dynamic>;
-                          final name = data['name'] ?? '';
-                          final description = data['description'] ?? '';
-                          final frequency = data['frequency'] ?? 'daily';
-                          final completed = data['completed'] ?? false;
-                          final lastCompleted = data['lastCompleted'];
-                          final progress = data['progress'] ?? 0;
-
-                          return _buildHabitCard(
-                            doc.id,
-                            name,
-                            description,
-                            frequency,
-                            completed,
-                            lastCompleted,
-                            progress,
-                            data,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            )
-          : (_selectedTab == 1
-              ? const StatsPage()
-              : const LogoRotate()),
+      body: _buildBody(),
       floatingActionButton: _selectedTab == 0
           ? FloatingActionButton(
               onPressed: _addHabit,
@@ -215,9 +189,75 @@ class _HabitsPageState extends State<HabitsPage> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
           BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Estadísticas'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Ajustes'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
         ],
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    switch (_selectedTab) {
+      case 0:
+        return _buildHabitsTab();
+      case 1:
+        return const StatsPage();
+      case 2:
+        return const ProfilePage();
+      default:
+        return _buildHabitsTab();
+    }
+  }
+
+  Widget _buildHabitsTab() {
+    return Column(
+      children: [
+        _buildCalendar(),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _service.getHabitsStream(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error: ${snapshot.error}'),
+                );
+              }
+
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final habits = snapshot.data!.docs;
+              if (habits.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Sin hábitos aún',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('¡Crea tu primer hábito!'),
+                    ],
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: habits.length,
+                itemBuilder: (context, i) {
+                  final doc = habits[i];
+                  final data = doc.data() as Map<String, dynamic>;
+                  return _buildHabitCard(doc.id, data);
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -240,6 +280,7 @@ class _HabitsPageState extends State<HabitsPage> {
               itemBuilder: (context, index) {
                 final date = _selectedDate.subtract(Duration(days: 7 - index));
                 final isSelected = _isSameDay(date, _selectedDate);
+                final isToday = _isSameDay(date, DateTime.now());
 
                 return GestureDetector(
                   onTap: () => setState(() => _selectedDate = date),
@@ -247,8 +288,13 @@ class _HabitsPageState extends State<HabitsPage> {
                     width: 50,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.teal : Colors.grey[200],
+                      color: isSelected
+                          ? Colors.teal
+                          : (isToday ? Colors.teal[100] : Colors.grey[200]),
                       borderRadius: BorderRadius.circular(12),
+                      border: isToday && !isSelected
+                          ? Border.all(color: Colors.teal, width: 2)
+                          : null,
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -280,17 +326,19 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  Widget _buildHabitCard(
-    String id,
-    String name,
-    String description,
-    String frequency,
-    bool completed,
-    dynamic lastCompleted,
-    int progress,
-    Map<String, dynamic> data,
-  ) {
+  Widget _buildHabitCard(String id, Map<String, dynamic> data) {
+    final name = data['name'] ?? '';
+    final description = data['description'] ?? '';
+    final frequency = data['frequency'] ?? 'daily';
+    final lastCompleted = data['lastCompleted'];
+    final progress = data['progress'] ?? 0;
+    final streak = data['streak'] ?? 0;
+    final history = List<dynamic>.from(data['completionHistory'] ?? []);
+
+    final isCompletedForSelectedDate = _service.isCompletedForDate(history, _selectedDate);
+
     return GestureDetector(
+      onTap: () => _viewProgress(id, data),
       onLongPress: () => _editHabit(id, data),
       child: Card(
         margin: const EdgeInsets.only(bottom: 12),
@@ -301,7 +349,7 @@ class _HabitsPageState extends State<HabitsPage> {
             borderRadius: BorderRadius.circular(12),
             gradient: LinearGradient(
               colors: [
-                completed ? Colors.teal[100]! : Colors.orange[50]!,
+                isCompletedForSelectedDate ? Colors.teal[100]! : Colors.orange[50]!,
                 Colors.white,
               ],
               begin: Alignment.topLeft,
@@ -314,9 +362,13 @@ class _HabitsPageState extends State<HabitsPage> {
               Row(
                 children: [
                   Checkbox(
-                    value: completed,
+                    value: isCompletedForSelectedDate,
                     onChanged: (v) async {
-                      await _service.toggleHabitCompleted(id, v ?? false);
+                      await _service.toggleHabitCompletedForDate(
+                        id,
+                        v ?? false,
+                        _selectedDate,
+                      );
                     },
                   ),
                   Expanded(
@@ -328,78 +380,58 @@ class _HabitsPageState extends State<HabitsPage> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            decoration: completed
+                            decoration: isCompletedForSelectedDate
                                 ? TextDecoration.lineThrough
                                 : TextDecoration.none,
-                            color: completed ? Colors.grey : Colors.black,
+                            color: isCompletedForSelectedDate ? Colors.grey : Colors.black,
                           ),
                         ),
-                        Text(
-                          description,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
+                        if (description.isNotEmpty)
+                          Text(
+                            description,
+                            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                           ),
-                        ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.blue),
-                    tooltip: 'Editar Hábito',
-                    onPressed: () => _editHabit(id, data),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    tooltip: 'Eliminar Hábito',
-                    onPressed: () => _deleteHabit(id),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Meta: ${_getFrequencyLabel(frequency)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                  ),
-                  if (lastCompleted != null)
-                    Text(
-                      'Último: ${_formatTimestamp(lastCompleted)}',
-                      style: const TextStyle(fontSize: 11, color: Colors.green),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('${progress} completados'),
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: Colors.red[100],
-                        child: IconButton(
-                          icon: const Icon(Icons.remove, color: Colors.red),
-                          onPressed: () {
-                            if (progress > 0) {
-                              _service.updateProgreso(id, progress - 1);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      CircleAvatar(
-                        backgroundColor: Colors.green[100],
-                        child: IconButton(
-                          icon: const Icon(Icons.add, color: Colors.green),
-                          onPressed: () {
-                            _service.updateProgreso(id, progress + 1);
-                          },
-                        ),
+                  PopupMenuButton<String>(
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'edit':
+                          _editHabit(id, data);
+                          break;
+                        case 'progress':
+                          _viewProgress(id, data);
+                          break;
+                        case 'history':
+                          _viewHistory(id, data);
+                          break;
+                        case 'delete':
+                          _deleteHabit(id);
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'edit', child: Text('Editar')),
+                      const PopupMenuItem(value: 'progress', child: Text('Ver Progreso')),
+                      const PopupMenuItem(value: 'history', child: Text('Ver Historial')),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Eliminar', style: TextStyle(color: Colors.red)),
                       ),
                     ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildStatChip(Icons.local_fire_department, '$streak días', Colors.orange),
+                  _buildStatChip(Icons.check_circle, '$progress total', Colors.green),
+                  Text(
+                    _getFrequencyLabel(frequency),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                   ),
                 ],
               ),
@@ -410,19 +442,37 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
+  Widget _buildStatChip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
+        ],
+      ),
+    );
+  }
+
   String _formatDate(DateTime date) {
     return '${date.day} ${_getMonthName(date.month)} ${date.year}';
   }
 
   String _getDayName(DateTime date) {
-    const days = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-    return days[date.weekday % 7];
+    const days = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+    return days[date.weekday - 1];
   }
 
   String _getMonthName(int month) {
     const months = [
-      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-      'jul', 'ago', 'sep', 'oct', 'nov', 'dic'
+      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
     ];
     return months[month - 1];
   }
@@ -445,6 +495,7 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 }
 
+// Diálogo para agregar hábito
 class AddHabitDialog extends StatefulWidget {
   const AddHabitDialog({super.key});
 
@@ -456,6 +507,7 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
   late TextEditingController nameCtrl;
   late TextEditingController descCtrl;
   String selectedFrequency = 'daily';
+  TimeOfDay? reminderTime;
 
   @override
   void initState() {
@@ -469,6 +521,16 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
     nameCtrl.dispose();
     descCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: reminderTime ?? TimeOfDay.now(),
+    );
+    if (picked != null) {
+      setState(() => reminderTime = picked);
+    }
   }
 
   @override
@@ -511,6 +573,23 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
               ],
               onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
             ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.notifications),
+              title: Text(
+                reminderTime != null
+                    ? 'Recordatorio: ${reminderTime!.format(context)}'
+                    : 'Agregar recordatorio',
+              ),
+              trailing: reminderTime != null
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => reminderTime = null),
+                    )
+                  : null,
+              onTap: _selectTime,
+            ),
           ],
         ),
       ),
@@ -531,6 +610,7 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
               'name': nameCtrl.text.trim(),
               'description': descCtrl.text.trim(),
               'frequency': selectedFrequency,
+              'reminderTime': reminderTime,
             });
           },
           child: const Text('Crear'),
@@ -540,6 +620,7 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
   }
 }
 
+// Diálogo para editar hábito
 class EditHabitDialog extends StatefulWidget {
   final Map<String, dynamic> habit;
   const EditHabitDialog({super.key, required this.habit});
@@ -552,6 +633,7 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
   late TextEditingController nameCtrl;
   late TextEditingController descCtrl;
   late String selectedFrequency;
+  TimeOfDay? reminderTime;
 
   @override
   void initState() {
@@ -559,6 +641,12 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
     nameCtrl = TextEditingController(text: widget.habit['name']);
     descCtrl = TextEditingController(text: widget.habit['description']);
     selectedFrequency = widget.habit['frequency'] ?? 'daily';
+
+    final hour = widget.habit['reminderHour'];
+    final minute = widget.habit['reminderMinute'];
+    if (hour != null && minute != null) {
+      reminderTime = TimeOfDay(hour: hour, minute: minute);
+    }
   }
 
   @override
@@ -566,6 +654,16 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
     nameCtrl.dispose();
     descCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: reminderTime ?? TimeOfDay.now(),
+    );
+    if (picked != null) {
+      setState(() => reminderTime = picked);
+    }
   }
 
   @override
@@ -606,6 +704,23 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
               ],
               onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
             ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.notifications),
+              title: Text(
+                reminderTime != null
+                    ? 'Recordatorio: ${reminderTime!.format(context)}'
+                    : 'Agregar recordatorio',
+              ),
+              trailing: reminderTime != null
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => reminderTime = null),
+                    )
+                  : null,
+              onTap: _selectTime,
+            ),
           ],
         ),
       ),
@@ -620,6 +735,7 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
               'name': nameCtrl.text.trim(),
               'description': descCtrl.text.trim(),
               'frequency': selectedFrequency,
+              'reminderTime': reminderTime,
             });
           },
           child: const Text('Guardar'),
@@ -629,20 +745,140 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
   }
 }
 
+// Página de estadísticas
 class StatsPage extends StatelessWidget {
   const StatsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Estadísticas')),
-      body: Center(
+    final service = FirestoneService();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: service.getHabitsStream(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final habits = snapshot.data!.docs;
+        int totalHabits = habits.length;
+        int totalCompleted = 0;
+        int totalStreak = 0;
+        int bestStreak = 0;
+
+        for (var doc in habits) {
+          final data = doc.data() as Map<String, dynamic>;
+          totalCompleted += (data['progress'] ?? 0) as int;
+          totalStreak += (data['streak'] ?? 0) as int;
+          final habitBest = (data['bestStreak'] ?? 0) as int;
+          if (habitBest > bestStreak) bestStreak = habitBest;
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Resumen General',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      'Hábitos Activos',
+                      '$totalHabits',
+                      Icons.favorite,
+                      Colors.pink,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Total Completados',
+                      '$totalCompleted',
+                      Icons.check_circle,
+                      Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      'Racha Actual',
+                      '$totalStreak días',
+                      Icons.local_fire_department,
+                      Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      'Mejor Racha',
+                      '$bestStreak días',
+                      Icons.emoji_events,
+                      Colors.amber,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Progreso por Hábito',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              ...habits.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final name = data['name'] ?? '';
+                final progress = data['progress'] ?? 0;
+                final streak = data['streak'] ?? 0;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text(name),
+                    subtitle: Text('Completados: $progress | Racha: $streak días'),
+                    trailing: CircleAvatar(
+                      backgroundColor: Colors.teal[100],
+                      child: Text('$progress'),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.show_chart, size: 72, color: Colors.teal),
-            SizedBox(height: 12),
-            Text('Mari ponga las estadisticas jajajaja', style: TextStyle(fontSize: 18)),
+          children: [
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),

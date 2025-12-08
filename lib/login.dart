@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'profile.dart';
 import 'main.dart';
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -39,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
         const SnackBar(content: Text('Login exitoso')),
       );
 
-      // Redirection to home (tu pantalla LogoRotate)
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -57,34 +56,36 @@ class _LoginPageState extends State<LoginPage> {
       await _setLoading(false);
     }
   }
-Future<void> loginWithGoogle() async {
-  try {
-    final GoogleSignIn googleSignIn = GoogleSignIn(); // <- sin clientId en Android
-    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-    if (googleUser == null) return; // usuario canceló
 
-    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+ Future <void> loginWithGoogle() async {
+    try {
+      const webClientID = "1058689194132-76at03bp255ipm7d17eh78vrjg2iuvti.apps.googleusercontent.com";
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        clientId: webClientID,
+      );
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return;
+      
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
 
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
-    );
-
-    await FirebaseAuth.instance.signInWithCredential(credential);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Login con Google exitoso')),
-    );
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HabitsPage()));
-  } on FirebaseAuthException catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('FirebaseAuthException: ${e.message}')));
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-  }
-}
-
-  
+      
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login con Google exitoso')),
+      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HabitsPage()));
+    }
+    catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    
+    }
+    }
 
   @override
   Widget build(BuildContext context) {

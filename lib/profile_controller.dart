@@ -158,4 +158,7 @@ class ProfileController {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
+  Future<void> logout() async {
+  await _auth.signOut();
+}
 }

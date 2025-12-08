@@ -227,22 +227,33 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _updateName(String name) async {
-  final user = FirebaseAuth.instance.currentUser;
+  final user = _auth.currentUser;
   if (user == null) return;
 
+  setState(() => _loading = true);
+
   try {
-    // Solo guardar en Firestore
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .set({
-          'displayName': name,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+    // Guardar en Firestore (merge para no sobreescribir)
+    await _fs.collection('users').doc(user.uid).set({
+      'displayName': name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // Opcional: actualizar también el displayName en Firebase Auth
+    try {
+      await user.updateDisplayName(name);
+    } catch (_) {
+      // no fatal si falla el update en Auth
+    }
 
     if (!mounted) return;
-    setState(() {});
-    
+
+    // Actualizamos el controlador y forzamos reconstrucción para ver el cambio al instante
+    setState(() {
+      _nameCtrl.text = name;
+      _loading = false;
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('✓ Nombre actualizado'),
@@ -251,11 +262,13 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   } catch (e) {
     if (!mounted) return;
+    setState(() => _loading = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
     );
   }
 }
+
 
   Future<void> _signOut() async {
     await _auth.signOut();

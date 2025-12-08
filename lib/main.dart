@@ -5,20 +5,28 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
+import 'login.dart';
 import 'register.dart';
 import 'profile.dart';
 import 'habit_progress_page.dart';
 import 'habit_history_page.dart';
 import 'theme_provider.dart';
+import 'notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
-  
+
+  // Inicializar notificaciones
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  await notificationService.requestPermissions();
+
   // Cargar preferencias del tema
   final themeProvider = ThemeProvider();
   await themeProvider.loadPreferences();
-  
+
+  // *** IMPORTANTE: MyApp contiene MaterialApp. runApp debe recibir MyApp ***
   runApp(
     ChangeNotifierProvider.value(
       value: themeProvider,
@@ -27,17 +35,43 @@ void main() async {
   );
 }
 
+// ============ APP PRINCIPAL CON MATERIALAPP ============
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
+      builder: (context, themeProvider, _) {
         return MaterialApp(
-          title: 'Mis Hábitos',
+          title: 'Control de Hábitos',
           debugShowCheckedModeBanner: false,
-          theme: themeProvider.currentTheme,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+            useMaterial3: true,
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            floatingActionButtonTheme: const FloatingActionButtonThemeData(
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+            ),
+          ),
+          darkTheme: ThemeData.dark().copyWith(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.teal,
+              brightness: Brightness.dark,
+            ),
+            appBarTheme: AppBarTheme(
+              backgroundColor: Colors.grey[900],
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+          ),
+          themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          // AuthGate ahora queda como 'home' dentro de MaterialApp
           home: const AuthGate(),
         );
       },
@@ -45,6 +79,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// ============ AUTH GATE ============
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -53,22 +88,36 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
+        // Cargando
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Cargando...'),
+                ],
+              ),
+            ),
           );
         }
 
+        // Usuario autenticado
         if (snapshot.hasData && snapshot.data != null) {
           return const HabitsPage();
         }
 
-        return const RegisterPage();
+        // No autenticado - ir a Login
+        return const LoginPage();
       },
     );
   }
 }
 
+
+// ============ PÁGINA PRINCIPAL DE HÁBITOS ============
 class HabitsPage extends StatefulWidget {
   const HabitsPage({super.key});
 
@@ -94,6 +143,15 @@ class _HabitsPageState extends State<HabitsPage> {
         result['frequency'] ?? 'daily',
         reminderTime: result['reminderTime'],
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Hábito creado exitosamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     }
   }
 
@@ -111,6 +169,15 @@ class _HabitsPageState extends State<HabitsPage> {
         result['frequency'] ?? 'daily',
         reminderTime: result['reminderTime'],
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Hábito actualizado'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
     }
   }
 
@@ -118,8 +185,16 @@ class _HabitsPageState extends State<HabitsPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Eliminar Hábito'),
-        content: const Text('¿Estás seguro de eliminar este hábito?'),
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Eliminar Hábito'),
+          ],
+        ),
+        content: const Text(
+          '¿Estás seguro de eliminar este hábito?\nEsta acción no se puede deshacer.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -136,6 +211,14 @@ class _HabitsPageState extends State<HabitsPage> {
 
     if (confirm ?? false) {
       await _service.deleteHabit(id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hábito eliminado'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -157,43 +240,54 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  String _formatTimestamp(dynamic ts) {
-    try {
-      if (ts == null) return '';
-      if (ts is Timestamp) {
-        final dt = ts.toDate();
-        return '${dt.day}/${dt.month}/${dt.year}';
-      }
-      return '';
-    } catch (_) {
-      return '';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis Hábitos'),
-        elevation: 0,
         centerTitle: true,
+        actions: [
+          // Botón para cambiar tema
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, _) {
+              return IconButton(
+                icon: Icon(
+                  themeProvider.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                ),
+                onPressed: () => themeProvider.toggleTheme(),
+                tooltip: 'Cambiar tema',
+              );
+            },
+          ),
+        ],
       ),
       body: _buildBody(),
       floatingActionButton: _selectedTab == 0
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
               onPressed: _addHabit,
-              child: const Icon(Icons.add),
+              icon: const Icon(Icons.add),
+              label: const Text('Nuevo Hábito'),
             )
           : null,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedTab,
-        onTap: (index) => setState(() => _selectedTab = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Estadísticas'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedTab,
+        onDestinationSelected: (index) => setState(() => _selectedTab = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Inicio',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'Estadísticas',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Perfil',
+          ),
         ],
       ),
     );
@@ -222,7 +316,19 @@ class _HabitsPageState extends State<HabitsPage> {
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(
-                  child: Text('Error: ${snapshot.error}'),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => setState(() {}),
+                        child: const Text('Reintentar'),
+                      ),
+                    ],
+                  ),
                 );
               }
 
@@ -236,14 +342,23 @@ class _HabitsPageState extends State<HabitsPage> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.favorite_border, size: 64, color: Colors.grey[300]),
+                      Icon(Icons.emoji_nature, size: 80, color: Colors.grey[300]),
                       const SizedBox(height: 16),
                       Text(
-                        'Sin hábitos aún',
+                        '¡Bienvenido!',
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
                       const SizedBox(height: 8),
-                      const Text('¡Crea tu primer hábito!'),
+                      Text(
+                        'Crea tu primer hábito para comenzar',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: _addHabit,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Crear Hábito'),
+                      ),
                     ],
                   ),
                 );
@@ -266,18 +381,33 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   Widget _buildCalendar() {
-    return Padding(
+    return Container(
       padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _formatDate(_selectedDate),
-            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _formatDate(_selectedDate),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  setState(() => _selectedDate = DateTime.now());
+                },
+                icon: const Icon(Icons.today, size: 18),
+                label: const Text('Hoy'),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           SizedBox(
-            height: 60,
+            height: 70,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: 14,
@@ -285,16 +415,17 @@ class _HabitsPageState extends State<HabitsPage> {
                 final date = _selectedDate.subtract(Duration(days: 7 - index));
                 final isSelected = _isSameDay(date, _selectedDate);
                 final isToday = _isSameDay(date, DateTime.now());
+                final isFuture = date.isAfter(DateTime.now());
 
                 return GestureDetector(
-                  onTap: () => setState(() => _selectedDate = date),
+                  onTap: isFuture ? null : () => setState(() => _selectedDate = date),
                   child: Container(
-                    width: 50,
+                    width: 55,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? Colors.teal
-                          : (isToday ? Colors.teal[100] : Colors.grey[200]),
+                          : (isToday ? Colors.teal.withOpacity(0.2) : null),
                       borderRadius: BorderRadius.circular(12),
                       border: isToday && !isSelected
                           ? Border.all(color: Colors.teal, width: 2)
@@ -306,16 +437,21 @@ class _HabitsPageState extends State<HabitsPage> {
                         Text(
                           _getDayName(date),
                           style: TextStyle(
-                            fontSize: 10,
-                            color: isSelected ? Colors.white : Colors.grey,
+                            fontSize: 11,
+                            color: isSelected
+                                ? Colors.white70
+                                : (isFuture ? Colors.grey[400] : Colors.grey[600]),
                           ),
                         ),
+                        const SizedBox(height: 4),
                         Text(
                           '${date.day}',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: isSelected ? Colors.white : Colors.black,
+                            color: isSelected
+                                ? Colors.white
+                                : (isFuture ? Colors.grey[400] : null),
                           ),
                         ),
                       ],
@@ -334,112 +470,258 @@ class _HabitsPageState extends State<HabitsPage> {
     final name = data['name'] ?? '';
     final description = data['description'] ?? '';
     final frequency = data['frequency'] ?? 'daily';
-    final lastCompleted = data['lastCompleted'];
     final progress = data['progress'] ?? 0;
     final streak = data['streak'] ?? 0;
     final history = List<dynamic>.from(data['completionHistory'] ?? []);
+    final reminderHour = data['reminderHour'];
+    final reminderMinute = data['reminderMinute'];
 
     final isCompletedForSelectedDate = _service.isCompletedForDate(history, _selectedDate);
+    final hasReminder = reminderHour != null && reminderMinute != null;
 
-    return GestureDetector(
-      onTap: () => _viewProgress(id, data),
-      onLongPress: () => _editHabit(id, data),
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        elevation: 2,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              colors: [
-                isCompletedForSelectedDate ? Colors.teal[100]! : Colors.orange[50]!,
-                Colors.white,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Checkbox(
-                    value: isCompletedForSelectedDate,
-                    onChanged: (v) async {
-                      await _service.toggleHabitCompletedForDate(
-                        id,
-                        v ?? false,
-                        _selectedDate,
-                      );
-                    },
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            decoration: isCompletedForSelectedDate
-                                ? TextDecoration.lineThrough
-                                : TextDecoration.none,
-                            color: isCompletedForSelectedDate ? Colors.grey : Colors.black,
-                          ),
-                        ),
-                        if (description.isNotEmpty)
-                          Text(
-                            description,
-                            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                          ),
-                      ],
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'edit':
-                          _editHabit(id, data);
-                          break;
-                        case 'progress':
-                          _viewProgress(id, data);
-                          break;
-                        case 'history':
-                          _viewHistory(id, data);
-                          break;
-                        case 'delete':
-                          _deleteHabit(id);
-                          break;
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                      const PopupMenuItem(value: 'progress', child: Text('Ver Progreso')),
-                      const PopupMenuItem(value: 'history', child: Text('Ver Historial')),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Eliminar', style: TextStyle(color: Colors.red)),
-                      ),
-                    ],
-                  ),
-                ],
+    return Dismissible(
+      key: Key(id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('¿Eliminar hábito?'),
+            content: Text('¿Deseas eliminar "$name"?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
               ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildStatChip(Icons.local_fire_department, '$streak días', Colors.orange),
-                  _buildStatChip(Icons.check_circle, '$progress total', Colors.green),
-                  Text(
-                    _getFrequencyLabel(frequency),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                  ),
-                ],
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
               ),
             ],
+          ),
+        );
+      },
+      onDismissed: (_) => _service.deleteHabit(id),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: isCompletedForSelectedDate ? 1 : 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: isCompletedForSelectedDate
+              ? const BorderSide(color: Colors.green, width: 2)
+              : BorderSide.none,
+        ),
+        child: InkWell(
+          onTap: () => _viewProgress(id, data),
+          onLongPress: () => _editHabit(id, data),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    // Checkbox
+                    Transform.scale(
+                      scale: 1.2,
+                      child: Checkbox(
+                        value: isCompletedForSelectedDate,
+                        onChanged: (v) async {
+                          await _service.toggleHabitCompletedForDate(
+                            id,
+                            v ?? false,
+                            _selectedDate,
+                          );
+                        },
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        activeColor: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Nombre y descripción
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: isCompletedForSelectedDate
+                                        ? TextDecoration.lineThrough
+                                        : TextDecoration.none,
+                                    color: isCompletedForSelectedDate
+                                        ? Colors.grey
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                              if (hasReminder)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.notifications_active,
+                                        size: 14,
+                                        color: Colors.blue,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${reminderHour.toString().padLeft(2, '0')}:${reminderMinute.toString().padLeft(2, '0')}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (description.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                description,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[600],
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Menú
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'edit':
+                            _editHabit(id, data);
+                            break;
+                          case 'progress':
+                            _viewProgress(id, data);
+                            break;
+                          case 'history':
+                            _viewHistory(id, data);
+                            break;
+                          case 'delete':
+                            _deleteHabit(id);
+                            break;
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 20),
+                              SizedBox(width: 12),
+                              Text('Editar'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'progress',
+                          child: Row(
+                            children: [
+                              Icon(Icons.show_chart, size: 20),
+                              SizedBox(width: 12),
+                              Text('Ver Progreso'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'history',
+                          child: Row(
+                            children: [
+                              Icon(Icons.history, size: 20),
+                              SizedBox(width: 12),
+                              Text('Ver Historial'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, size: 20, color: Colors.red),
+                              SizedBox(width: 12),
+                              Text('Eliminar', style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Estadísticas
+                Row(
+                  children: [
+                    _buildStatChip(
+                      Icons.local_fire_department,
+                      '$streak días',
+                      Colors.orange,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildStatChip(
+                      Icons.check_circle,
+                      '$progress total',
+                      Colors.green,
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _getFrequencyLabel(frequency),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -448,28 +730,35 @@ class _HabitsPageState extends State<HabitsPage> {
 
   Widget _buildStatChip(IconData icon, String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day} ${_getMonthName(date.month)} ${date.year}';
+    return '${date.day} de ${_getMonthName(date.month)} ${date.year}';
   }
 
   String _getDayName(DateTime date) {
-    const days = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+    const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     return days[date.weekday - 1];
   }
 
@@ -499,7 +788,7 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 }
 
-// Diálogo para agregar hábito
+// ============ DIÁLOGO PARA AGREGAR HÁBITO ============
 class AddHabitDialog extends StatefulWidget {
   const AddHabitDialog({super.key});
 
@@ -530,7 +819,19 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
   Future<void> _selectTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: reminderTime ?? TimeOfDay.now(),
+      initialTime: reminderTime ?? const TimeOfDay(hour: 8, minute: 0),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() => reminderTime = picked);
@@ -540,59 +841,92 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Crear Hábito'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Row(
+        children: [
+          Icon(Icons.add_circle, color: Colors.teal),
+          SizedBox(width: 8),
+          Text('Nuevo Hábito'),
+        ],
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Nombre del Hábito',
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: 'Nombre del Hábito *',
                 hintText: 'Ej. Hacer ejercicio',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.edit),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: descCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Descripción',
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: 'Descripción (opcional)',
                 hintText: 'Ej. 30 minutos de cardio',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.description),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               maxLines: 2,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: selectedFrequency,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Frecuencia',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.repeat),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               items: const [
-                DropdownMenuItem(value: 'daily', child: Text('Diario')),
-                DropdownMenuItem(value: 'weekly', child: Text('Semanal')),
-                DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
+                DropdownMenuItem(value: 'daily', child: Text('📅 Diario')),
+                DropdownMenuItem(value: 'weekly', child: Text('📆 Semanal')),
+                DropdownMenuItem(value: 'monthly', child: Text('🗓️ Mensual')),
               ],
               onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
             ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.notifications),
-              title: Text(
-                reminderTime != null
-                    ? 'Recordatorio: ${reminderTime!.format(context)}'
-                    : 'Agregar recordatorio',
+            const SizedBox(height: 16),
+            // Recordatorio
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(12),
               ),
-              trailing: reminderTime != null
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () => setState(() => reminderTime = null),
-                    )
-                  : null,
-              onTap: _selectTime,
+              child: ListTile(
+                leading: Icon(
+                  reminderTime != null
+                      ? Icons.notifications_active
+                      : Icons.notifications_none,
+                  color: reminderTime != null ? Colors.teal : Colors.grey,
+                ),
+                title: Text(
+                  reminderTime != null
+                      ? 'Recordatorio: ${reminderTime!.format(context)}'
+                      : 'Agregar recordatorio',
+                  style: TextStyle(
+                    color: reminderTime != null ? Colors.teal : Colors.grey[700],
+                  ),
+                ),
+                trailing: reminderTime != null
+                    ? IconButton(
+                        icon: const Icon(Icons.close, color: Colors.red),
+                        onPressed: () => setState(() => reminderTime = null),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: _selectTime,
+              ),
             ),
           ],
         ),
@@ -602,11 +936,14 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: () {
             if (nameCtrl.text.trim().isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('El nombre es requerido')),
+                const SnackBar(
+                  content: Text('El nombre es requerido'),
+                  backgroundColor: Colors.orange,
+                ),
               );
               return;
             }
@@ -617,14 +954,22 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
               'reminderTime': reminderTime,
             });
           },
-          child: const Text('Crear'),
+          icon: const Icon(Icons.check),
+          label: const Text('Crear'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-// Diálogo para editar hábito
+// ============ DIÁLOGO PARA EDITAR HÁBITO ============
 class EditHabitDialog extends StatefulWidget {
   final Map<String, dynamic> habit;
   const EditHabitDialog({super.key, required this.habit});
@@ -663,7 +1008,7 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
   Future<void> _selectTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: reminderTime ?? TimeOfDay.now(),
+      initialTime: reminderTime ?? const TimeOfDay(hour: 8, minute: 0),
     );
     if (picked != null) {
       setState(() => reminderTime = picked);
@@ -673,57 +1018,85 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Editar Hábito'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Row(
+        children: [
+          Icon(Icons.edit, color: Colors.blue),
+          SizedBox(width: 8),
+          Text('Editar Hábito'),
+        ],
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameCtrl,
-              decoration: const InputDecoration(
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
                 labelText: 'Nombre del Hábito',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.edit),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: descCtrl,
-              decoration: const InputDecoration(
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
                 labelText: 'Descripción',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.description),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               maxLines: 2,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: selectedFrequency,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Frecuencia',
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.repeat),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               items: const [
-                DropdownMenuItem(value: 'daily', child: Text('Diario')),
-                DropdownMenuItem(value: 'weekly', child: Text('Semanal')),
-                DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
+                DropdownMenuItem(value: 'daily', child: Text('📅 Diario')),
+                DropdownMenuItem(value: 'weekly', child: Text('📆 Semanal')),
+                DropdownMenuItem(value: 'monthly', child: Text('🗓️ Mensual')),
               ],
               onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
             ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.notifications),
-              title: Text(
-                reminderTime != null
-                    ? 'Recordatorio: ${reminderTime!.format(context)}'
-                    : 'Agregar recordatorio',
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(12),
               ),
-              trailing: reminderTime != null
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () => setState(() => reminderTime = null),
-                    )
-                  : null,
-              onTap: _selectTime,
+              child: ListTile(
+                leading: Icon(
+                  reminderTime != null
+                      ? Icons.notifications_active
+                      : Icons.notifications_none,
+                  color: reminderTime != null ? Colors.teal : Colors.grey,
+                ),
+                title: Text(
+                  reminderTime != null
+                      ? 'Recordatorio: ${reminderTime!.format(context)}'
+                      : 'Sin recordatorio',
+                ),
+                trailing: reminderTime != null
+                    ? IconButton(
+                        icon: const Icon(Icons.close, color: Colors.red),
+                        onPressed: () => setState(() => reminderTime = null),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: _selectTime,
+              ),
             ),
           ],
         ),
@@ -733,8 +1106,14 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: () {
+            if (nameCtrl.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('El nombre es requerido')),
+              );
+              return;
+            }
             Navigator.pop(context, {
               'name': nameCtrl.text.trim(),
               'description': descCtrl.text.trim(),
@@ -742,14 +1121,22 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
               'reminderTime': reminderTime,
             });
           },
-          child: const Text('Guardar'),
+          icon: const Icon(Icons.save),
+          label: const Text('Guardar'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-// Página de estadísticas
+// ============ PÁGINA DE ESTADÍSTICAS ============
 class StatsPage extends StatelessWidget {
   const StatsPage({super.key});
 
@@ -778,6 +1165,27 @@ class StatsPage extends StatelessWidget {
           if (habitBest > bestStreak) bestStreak = habitBest;
         }
 
+        if (totalHabits == 0) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.bar_chart, size: 80, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                const Text(
+                  'Sin estadísticas',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Crea hábitos para ver tus estadísticas',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          );
+        }
+
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -785,7 +1193,9 @@ class StatsPage extends StatelessWidget {
             children: [
               Text(
                 'Resumen General',
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const SizedBox(height: 16),
               Row(
@@ -814,7 +1224,7 @@ class StatsPage extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _buildStatCard(
-                      'Racha Actual',
+                      'Racha Combinada',
                       '$totalStreak días',
                       Icons.local_fire_department,
                       Colors.orange,
@@ -834,7 +1244,9 @@ class StatsPage extends StatelessWidget {
               const SizedBox(height: 24),
               Text(
                 'Progreso por Hábito',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const SizedBox(height: 12),
               ...habits.map((doc) {
@@ -842,19 +1254,39 @@ class StatsPage extends StatelessWidget {
                 final name = data['name'] ?? '';
                 final progress = data['progress'] ?? 0;
                 final streak = data['streak'] ?? 0;
+                final bestHabitStreak = data['bestStreak'] ?? 0;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(name),
-                    subtitle: Text('Completados: $progress | Racha: $streak días'),
-                    trailing: CircleAvatar(
-                      backgroundColor: Colors.teal[100],
-                      child: Text('$progress'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildMiniStat(Icons.check, '$progress', 'Total', Colors.green),
+                            _buildMiniStat(Icons.local_fire_department, '$streak', 'Racha', Colors.orange),
+                            _buildMiniStat(Icons.emoji_events, '$bestHabitStreak', 'Mejor', Colors.amber),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ),
         );
@@ -864,20 +1296,23 @@ class StatsPage extends StatelessWidget {
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 8),
+            Icon(icon, size: 36, color: color),
+            const SizedBox(height: 12),
             Text(
               value,
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 28,
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
             ),
+            const SizedBox(height: 4),
             Text(
               title,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -886,6 +1321,27 @@ class StatsPage extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMiniStat(IconData icon, String value, String label, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: Colors.grey),
+        ),
+      ],
     );
   }
 }

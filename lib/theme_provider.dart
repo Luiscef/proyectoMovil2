@@ -8,7 +8,11 @@ class ThemeProvider extends ChangeNotifier {
   bool _darkMode = false;
   bool _notificationsEnabled = true;
   
+  // Mantener getter existente
   bool get darkMode => _darkMode;
+  // Alias para compatibilidad con main.dart
+  bool get isDarkMode => _darkMode;
+
   bool get notificationsEnabled => _notificationsEnabled;
   
   ThemeData get currentTheme => _darkMode ? _darkTheme : _lightTheme;
@@ -35,11 +39,14 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
   
-  // Cambiar tema
-  Future<void> toggleTheme(bool value) async {
-    _darkMode = value;
+  // toggleTheme ahora acepta un parámetro opcional.
+  // Si value == null => invierte el tema actual (comportamiento para toggleTheme()).
+  // Si se pasa true/false => establece el valor explícitamente (comportamiento para toggleTheme(true/false)).
+  Future<void> toggleTheme([bool? value]) async {
+    final newValue = value ?? !_darkMode; // si value es null invertimos
+    _darkMode = newValue;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_darkModeKey, value);
+    await prefs.setBool(_darkModeKey, newValue);
     notifyListeners();
   }
   

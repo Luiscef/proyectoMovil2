@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'theme_provider.dart';
+import 'notification_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -310,7 +311,94 @@ class _ProfilePageState extends State<ProfilePage> {
               themeProvider.toggleNotifications(v);
             },
           ),
+          // Después de las preferencias, antes del botón cerrar sesión:
+
+const SizedBox(height: 16),
+
+// BOTÓN PARA PROBAR NOTIFICACIONES
+Card(
+  elevation: 2,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+  child: Column(
+    children: [
+      ListTile(
+        leading: const Icon(Icons.notifications_active, color: Colors.teal),
+        title: const Text('Probar Notificación'),
+        subtitle: const Text('Enviar notificación de prueba ahora'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          await NotificationService().showTestNotification();
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✓ Notificación de prueba enviada'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        },
+      ),
+      const Divider(height: 1),
+      ListTile(
+        leading: const Icon(Icons.schedule, color: Colors.orange),
+        title: const Text('Ver Recordatorios Activos'),
+        subtitle: const Text('Notificaciones programadas'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          final pending = await NotificationService().getPendingNotifications();
+          if (context.mounted) {
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: Row(
+                  children: [
+                    const Icon(Icons.schedule, color: Colors.teal),
+                    const SizedBox(width: 8),
+                    Text('Recordatorios (${pending.length})'),
+                  ],
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  height: 300,
+                  child: pending.isEmpty
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('No hay recordatorios programados'),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: pending.length,
+                          itemBuilder: (_, i) => Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.alarm, color: Colors.teal),
+                              title: Text(pending[i].title ?? 'Sin título'),
+                              subtitle: Text(pending[i].body ?? ''),
+                            ),
+                          ),
+                        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cerrar'),
+                  ),
+                ],
+              ),
+            );
+          }
+        },
+      ),
+    ],
+  ),
+),
         ],
+        
       ),
     );
   }

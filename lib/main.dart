@@ -2,17 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
 import 'register.dart';
 import 'profile.dart';
 import 'habit_progress_page.dart';
 import 'habit_history_page.dart';
+import 'theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
-  runApp(const MyApp());
+  
+  // Cargar preferencias del tema
+  final themeProvider = ThemeProvider();
+  await themeProvider.loadPreferences();
+  
+  runApp(
+    ChangeNotifierProvider.value(
+      value: themeProvider,
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -20,11 +32,15 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mis Hábitos',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
-      home: const AuthGate(),
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'Mis Hábitos',
+          debugShowCheckedModeBanner: false,
+          theme: themeProvider.currentTheme,
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }
@@ -163,18 +179,6 @@ class _HabitsPageState extends State<HabitsPage> {
         title: const Text('Mis Hábitos'),
         elevation: 0,
         centerTitle: true,
-        actions: [
-          if (_selectedTab == 0)
-            IconButton(
-              icon: const Icon(Icons.person),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfilePage()),
-                );
-              },
-            ),
-        ],
       ),
       body: _buildBody(),
       floatingActionButton: _selectedTab == 0

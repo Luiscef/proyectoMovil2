@@ -1,7 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'profile_controller.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
+import 'theme_provider.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -11,8 +17,16 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final ProfileController _controller = ProfileController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _fs = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final ImagePicker _picker = ImagePicker();
+
+  final TextEditingController _nameCtrl = TextEditingController();
+  bool _loading = false;
   bool _loadingProfile = true;
+  String? _photoUrl;
+  File? _localImage;
 
   @override
   void initState() {
@@ -21,31 +35,69 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadProfile() async {
-    await _controller.loadSavedProfile();
-    if (mounted) {
-      setState(() => _loadingProfile = false);
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final doc = await _fs.collection('users').doc(user.uid).get();
+      final data = doc.data();
+
+      if (data != null && mounted) {
+        setState(() {
+          _nameCtrl.text = data['displayName'] ?? user.displayName ?? '';
+          _photoUrl = data['photoUrl'] ?? user.photoURL;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingProfile = false);
+      }
     }
   }
 
-  // ============ LOGOUT ============
-  Future<void> _logout() async {
-    await _controller.logout();
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
-    );
-  }
-
-  // ============ CAMBIAR FOTO ============
-  Future<void> _pickAndUpload(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source) async {
     try {
-      final result = await _controller.pickAndUploadImage(source);
-      if (!mounted) return;
-      
-      if (result != null) {
-        setState(() {});
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 75,
+      );
+
+      if (image == null) return;
+
+      setState(() {
+        _loading = true;
+        _localImage = File(image.path);
+      });
+
+      final user = _auth.currentUser;
+      if (user == null) {
+        setState(() => _loading = false);
+        return;
+      }
+
+      // Subir imagen a Firebase Storage
+      final ref = _storage.ref().child('profile_photos/${user.uid}.jpg');
+      await ref.putFile(File(image.path));
+      final downloadUrl = await ref.getDownloadURL();
+
+      // Actualizar Firestore
+      await _fs.collection('users').doc(user.uid).update({
+        'photoUrl': downloadUrl,
+      });
+
+      // Actualizar perfil de Auth
+      await user.updatePhotoURL(downloadUrl);
+
+      if (mounted) {
+        setState(() {
+          _photoUrl = downloadUrl;
+          _loading = false;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('✓ Foto de perfil actualizada'),
@@ -54,10 +106,15 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _localImage = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -90,7 +147,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: const Text('Tomar foto'),
                 onTap: () {
                   Navigator.pop(context);
-                  _pickAndUpload(ImageSource.camera);
+                  _pickImage(ImageSource.camera);
                 },
               ),
               ListTile(
@@ -101,7 +158,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: const Text('Elegir de galería'),
                 onTap: () {
                   Navigator.pop(context);
-                  _pickAndUpload(ImageSource.gallery);
+                  _pickImage(ImageSource.gallery);
                 },
               ),
               const SizedBox(height: 10),
@@ -112,10 +169,9 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // ============ EDITAR SOLO NOMBRE ============
   void _showEditNameDialog() {
-    final nameCtrl = TextEditingController(text: _controller.displayName);
-    
+    final nameController = TextEditingController(text: _nameCtrl.text);
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -128,7 +184,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ],
         ),
         content: TextField(
-          controller: nameCtrl,
+          controller: nameController,
           autofocus: true,
           decoration: InputDecoration(
             labelText: 'Nombre',
@@ -147,7 +203,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final name = nameCtrl.text.trim();
+              final name = nameController.text.trim();
               if (name.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('El nombre no puede estar vacío')),
@@ -169,27 +225,51 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _updateName(String name) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    setState(() => _loading = true);
+
     try {
-      // Solo actualiza el nombre, mantiene el email actual
-      await _controller.updateProfile(name: name, email: _controller.email);
-      if (!mounted) return;
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✓ Nombre actualizado'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      await user.updateDisplayName(name);
+      await _fs.collection('users').doc(user.uid).update({
+        'displayName': name,
+      });
+
+      if (mounted) {
+        setState(() {
+          _nameCtrl.text = name;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Nombre actualizado'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    await _auth.signOut();
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
       );
     }
   }
 
-  // ============ PREFERENCIAS ============
-  Widget _buildPreferencesCard() {
+  Widget _buildPreferencesCard(ThemeProvider themeProvider) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -197,41 +277,37 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           SwitchListTile(
             secondary: Icon(
-              _controller.darkMode ? Icons.dark_mode : Icons.light_mode,
-              color: _controller.darkMode ? Colors.amber : Colors.orange,
+              themeProvider.darkMode ? Icons.dark_mode : Icons.light_mode,
+              color: themeProvider.darkMode ? Colors.amber : Colors.orange,
             ),
             title: const Text('Tema oscuro'),
             subtitle: Text(
-              _controller.darkMode ? 'Activado' : 'Desactivado',
+              themeProvider.darkMode ? 'Activado' : 'Desactivado',
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
-            value: _controller.darkMode,
+            value: themeProvider.darkMode,
             activeColor: Colors.teal,
-            onChanged: (v) async {
-              await _controller.toggleTheme(v);
-              if (!mounted) return;
-              setState(() {});
+            onChanged: (v) {
+              themeProvider.toggleTheme(v);
             },
           ),
           const Divider(height: 1),
           SwitchListTile(
             secondary: Icon(
-              _controller.notificationsEnabled 
-                  ? Icons.notifications_active 
+              themeProvider.notificationsEnabled
+                  ? Icons.notifications_active
                   : Icons.notifications_off,
-              color: _controller.notificationsEnabled ? Colors.teal : Colors.grey,
+              color: themeProvider.notificationsEnabled ? Colors.teal : Colors.grey,
             ),
             title: const Text('Notificaciones'),
             subtitle: Text(
-              _controller.notificationsEnabled ? 'Activadas' : 'Desactivadas',
+              themeProvider.notificationsEnabled ? 'Activadas' : 'Desactivadas',
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
-            value: _controller.notificationsEnabled,
+            value: themeProvider.notificationsEnabled,
             activeColor: Colors.teal,
-            onChanged: (v) async {
-              await _controller.toggleNotifications(v);
-              if (!mounted) return;
-              setState(() {});
+            onChanged: (v) {
+              themeProvider.toggleNotifications(v);
             },
           ),
         ],
@@ -247,197 +323,190 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     }
 
-    final themeData = _controller.darkMode ? ThemeData.dark() : ThemeData.light();
+    final user = _auth.currentUser;
+    final themeProvider = Provider.of<ThemeProvider>(context);
 
-    return Theme(
-      data: themeData.copyWith(
-        colorScheme: themeData.colorScheme.copyWith(primary: Colors.teal),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Mi Perfil'),
+        centerTitle: true,
+        elevation: 0,
       ),
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Mi Perfil'),
-          centerTitle: true,
-          elevation: 0,
-        ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              const SizedBox(height: 10),
-              
-              // ===== FOTO DE PERFIL =====
-              Stack(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.teal, width: 3),
-                    ),
-                    child: CircleAvatar(
-                      radius: 70,
-                      backgroundColor: Colors.grey[300],
-                      backgroundImage: _controller.localImage != null
-                          ? FileImage(_controller.localImage!)
-                          : NetworkImage(_controller.imageUrl) as ImageProvider,
-                    ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+
+            // ===== FOTO DE PERFIL =====
+            Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.teal, width: 3),
                   ),
-                  if (_controller.uploading)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.4),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: CircularProgressIndicator(color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: GestureDetector(
-                      onTap: _controller.uploading ? null : _showImageOptions,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.teal,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // ===== NOMBRE CON BOTÓN EDITAR =====
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Flexible(
-                    child: Text(
-                      _controller.displayName.isEmpty 
-                          ? 'Sin nombre' 
-                          : _controller.displayName,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: _showEditNameDialog,
-                    icon: const Icon(Icons.edit, color: Colors.teal),
-                    tooltip: 'Editar nombre',
-                  ),
-                ],
-              ),
-              
-              // ===== EMAIL (SOLO LECTURA) =====
-              Text(
-                _controller.email.isEmpty 
-                    ? 'correo@ejemplo.com' 
-                    : _controller.email,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                ),
-              ),
-              
-              const SizedBox(height: 32),
-              
-              // ===== CARD DE INFORMACIÓN =====
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Información de la cuenta',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildInfoRow(
-                        Icons.person,
-                        'Nombre',
-                        _controller.displayName.isEmpty 
-                            ? 'No establecido' 
-                            : _controller.displayName,
-                        editable: true,
-                        onEdit: _showEditNameDialog,
-                      ),
-                      const Divider(),
-                      _buildInfoRow(
-                        Icons.email,
-                        'Correo electrónico',
-                        _controller.email.isEmpty 
-                            ? 'No disponible' 
-                            : _controller.email,
-                        editable: false, // ← EMAIL NO EDITABLE
-                      ),
-                    ],
+                  child: CircleAvatar(
+                    radius: 70,
+                    backgroundColor: Colors.grey[300],
+                    backgroundImage: _localImage != null
+                        ? FileImage(_localImage!)
+                        : (_photoUrl != null && _photoUrl!.isNotEmpty
+                            ? NetworkImage(_photoUrl!) as ImageProvider
+                            : null),
+                    child: (_localImage == null && (_photoUrl == null || _photoUrl!.isEmpty))
+                        ? const Icon(Icons.person, size: 70, color: Colors.white)
+                        : null,
                   ),
                 ),
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // ===== PREFERENCIAS =====
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: EdgeInsets.only(left: 4, bottom: 8),
+                if (_loading)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.4),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: _loading ? null : _showImageOptions,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.teal,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // ===== NOMBRE CON BOTÓN EDITAR =====
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
                   child: Text(
-                    'Preferencias',
-                    style: TextStyle(
-                      fontSize: 16,
+                    _nameCtrl.text.isEmpty ? 'Sin nombre' : _nameCtrl.text,
+                    style: const TextStyle(
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
+                IconButton(
+                  onPressed: _showEditNameDialog,
+                  icon: const Icon(Icons.edit, color: Colors.teal),
+                  tooltip: 'Editar nombre',
+                ),
+              ],
+            ),
+
+            // ===== EMAIL (SOLO LECTURA) =====
+            Text(
+              user?.email ?? 'correo@ejemplo.com',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
               ),
-              _buildPreferencesCard(),
-              
-              const SizedBox(height: 32),
-              
-              // ===== BOTÓN CERRAR SESIÓN =====
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _logout,
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Cerrar sesión'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+            ),
+
+            const SizedBox(height: 32),
+
+            // ===== CARD DE INFORMACIÓN =====
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Información de la cuenta',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
+                    const SizedBox(height: 16),
+                    _buildInfoRow(
+                      Icons.person,
+                      'Nombre',
+                      _nameCtrl.text.isEmpty ? 'No establecido' : _nameCtrl.text,
+                      editable: true,
+                      onEdit: _showEditNameDialog,
+                    ),
+                    const Divider(),
+                    _buildInfoRow(
+                      Icons.email,
+                      'Correo electrónico',
+                      user?.email ?? 'No disponible',
+                      editable: false,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ===== PREFERENCIAS =====
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(left: 4, bottom: 8),
+                child: Text(
+                  'Preferencias',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 20),
-            ],
-          ),
+            ),
+            _buildPreferencesCard(themeProvider),
+
+            const SizedBox(height: 32),
+
+            // ===== BOTÓN CERRAR SESIÓN =====
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _signOut,
+                icon: const Icon(Icons.logout),
+                label: const Text('Cerrar sesión'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+          ],
         ),
       ),
     );
@@ -483,5 +552,11 @@ class _ProfilePageState extends State<ProfilePage> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
   }
 }

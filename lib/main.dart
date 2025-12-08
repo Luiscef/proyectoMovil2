@@ -12,21 +12,25 @@ import 'habit_progress_page.dart';
 import 'habit_history_page.dart';
 import 'theme_provider.dart';
 import 'notification_service.dart';
+import 'fcm_service.dart';  // AGREGAR
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
 
-  // Inicializar notificaciones
+  // Inicializar notificaciones locales
   final notificationService = NotificationService();
   await notificationService.initialize();
   await notificationService.requestPermissions();
+
+  // Inicializar FCM (notificaciones push)
+  final fcmService = FCMService();
+  await fcmService.initialize();
 
   // Cargar preferencias del tema
   final themeProvider = ThemeProvider();
   await themeProvider.loadPreferences();
 
-  // *** IMPORTANTE: MyApp contiene MaterialApp. runApp debe recibir MyApp ***
   runApp(
     ChangeNotifierProvider.value(
       value: themeProvider,
@@ -34,7 +38,6 @@ void main() async {
     ),
   );
 }
-
 // ============ APP PRINCIPAL CON MATERIALAPP ============
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

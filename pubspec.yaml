@@ -43,12 +43,22 @@ dependencies:
   timezone: ^0.9.4
   #flutter_timezone: ^1.0.8
   permission_handler: ^11.3.0
+  http: ^1.1.0
+  firebase_messaging: ^14.7.0
   # flutter_local_notifications: ^13.0.0
-
+  flutter_launcher_icons: ^0.13.1
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   google_mlkit_text_recognition: ^0.12.1
+# Configuración del icono de la app
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#009688"  # Color teal de fondo
+
 
 dev_dependencies:
   flutter_test:

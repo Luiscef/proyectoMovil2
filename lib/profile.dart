@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'theme_provider.dart';
 import 'notification_service.dart';
+import 'package:http/http.dart' as http;
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -396,6 +397,47 @@ Card(
       ),
     ],
   ),
+),
+
+ListTile(
+  leading: const Icon(Icons.cloud, color: Colors.purple),
+  title: const Text('Probar Push (Cloud)'),
+  subtitle: const Text('Enviar desde Firebase'),
+  trailing: const Icon(Icons.chevron_right),
+  onTap: () async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay usuario logueado')),
+      );
+      return;
+    }
+
+    try {
+      final url = Uri.parse(
+        'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
+      );
+      
+      final response = await http.get(url);
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.statusCode == 200 
+              ? '✓ Notificación push enviada' 
+              : 'Error: ${response.body}'),
+            backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  },
 ),
         ],
         

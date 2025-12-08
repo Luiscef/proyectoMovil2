@@ -227,38 +227,35 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _updateName(String name) async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
 
-    setState(() => _loading = true);
+  try {
+    // Solo guardar en Firestore
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({
+          'displayName': name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-    try {
-      await user.updateDisplayName(name);
-      await _fs.collection('users').doc(user.uid).update({
-        'displayName': name,
-      });
-
-      if (mounted) {
-        setState(() {
-          _nameCtrl.text = name;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Nombre actualizado'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    if (!mounted) return;
+    setState(() {});
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✓ Nombre actualizado'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+    );
   }
+}
 
   Future<void> _signOut() async {
     await _auth.signOut();
@@ -293,7 +290,7 @@ class _ProfilePageState extends State<ProfilePage> {
               themeProvider.toggleTheme(v);
             },
           ),
-          const Divider(height: 1),
+          const Divider(),
           SwitchListTile(
             secondary: Icon(
               themeProvider.notificationsEnabled
@@ -314,133 +311,179 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           // Después de las preferencias, antes del botón cerrar sesión:
 
-const SizedBox(height: 16),
+          const SizedBox(height: 16),
 
-// BOTÓN PARA PROBAR NOTIFICACIONES
-Card(
-  elevation: 2,
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-  child: Column(
-    children: [
-      ListTile(
-        leading: const Icon(Icons.notifications_active, color: Colors.teal),
-        title: const Text('Probar Notificación'),
-        subtitle: const Text('Enviar notificación de prueba ahora'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () async {
-          await NotificationService().showTestNotification();
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('✓ Notificación de prueba enviada'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        },
-      ),
-      const Divider(height: 1),
-      ListTile(
-        leading: const Icon(Icons.schedule, color: Colors.orange),
-        title: const Text('Ver Recordatorios Activos'),
-        subtitle: const Text('Notificaciones programadas'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () async {
-          final pending = await NotificationService().getPendingNotifications();
-          if (context.mounted) {
-            showDialog(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: Row(
-                  children: [
-                    const Icon(Icons.schedule, color: Colors.teal),
-                    const SizedBox(width: 8),
-                    Text('Recordatorios (${pending.length})'),
-                  ],
+          // BOTÓN PARA PROBAR NOTIFICACIONES
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.notifications_active, color: Colors.teal),
+                  title: const Text('Probar Notificación'),
+                  subtitle: const Text('Enviar notificación de prueba ahora'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await NotificationService().showTestNotification();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('✓ Notificación de prueba enviada'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  },
                 ),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  height: 300,
-                  child: pending.isEmpty
-                      ? const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.notifications_off, size: 48, color: Colors.grey),
-                              SizedBox(height: 8),
-                              Text('No hay recordatorios programados'),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.schedule, color: Colors.orange),
+                  title: const Text('Ver Recordatorios Activos'),
+                  subtitle: const Text('Notificaciones programadas'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    try {
+                      final raw = await NotificationService().getPendingNotifications();
+
+                      // Normalizar a lista dinámica
+                      List<dynamic> pendingList = [];
+                      if (raw == null) {
+                        pendingList = [];
+                      } else if (raw is List) {
+                        pendingList = raw;
+                      } else {
+                        // Si viene un único objeto, lo convertimos a lista de 1
+                        pendingList = [raw];
+                      }
+
+                      // Helper para extraer title/body de distintos formatos
+                      String extractTitle(dynamic item) {
+                        if (item == null) return 'Sin título';
+                        try {
+                          if (item is Map && item.containsKey('title')) return '${item['title']}';
+                          final t = (item as dynamic).title;
+                          if (t != null) return '$t';
+                        } catch (_) {}
+                        return 'Sin título';
+                      }
+
+                      String extractBody(dynamic item) {
+                        if (item == null) return '';
+                        try {
+                          if (item is Map && item.containsKey('body')) return '${item['body']}';
+                          final b = (item as dynamic).body;
+                          if (b != null) return '$b';
+                        } catch (_) {}
+                        return '';
+                      }
+
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: Row(
+                              children: [
+                                const Icon(Icons.schedule, color: Colors.teal),
+                                const SizedBox(width: 8),
+                                Text('Recordatorios (${pendingList.length})'),
+                              ],
+                            ),
+                            content: SizedBox(
+                              width: double.maxFinite,
+                              height: 300,
+                              child: pendingList.isEmpty
+                                  ? const Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+                                          SizedBox(height: 8),
+                                          Text('No hay recordatorios programados'),
+                                        ],
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      shrinkWrap: true,
+                                      itemCount: pendingList.length,
+                                      itemBuilder: (_, i) {
+                                        final item = pendingList[i];
+                                        final title = extractTitle(item);
+                                        final body = extractBody(item);
+                                        return Card(
+                                          child: ListTile(
+                                            leading: const Icon(Icons.alarm, color: Colors.teal),
+                                            title: Text(title),
+                                            subtitle: Text(body),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cerrar'),
+                              ),
                             ],
                           ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: pending.length,
-                          itemBuilder: (_, i) => Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.alarm, color: Colors.teal),
-                              title: Text(pending[i].title ?? 'Sin título'),
-                              subtitle: Text(pending[i].body ?? ''),
-                            ),
-                          ),
-                        ),
+                        );
+                      }
+                    } catch (e, st) {
+                      debugPrint('Error obteniendo recordatorios: $e\n$st');
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cerrar'),
-                  ),
-                ],
-              ),
-            );
-          }
-        },
-      ),
-    ],
-  ),
-),
-
-ListTile(
-  leading: const Icon(Icons.cloud, color: Colors.purple),
-  title: const Text('Probar Push (Cloud)'),
-  subtitle: const Text('Enviar desde Firebase'),
-  trailing: const Icon(Icons.chevron_right),
-  onTap: () async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay usuario logueado')),
-      );
-      return;
-    }
-
-    try {
-      final url = Uri.parse(
-        'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
-      );
-      
-      final response = await http.get(url);
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.statusCode == 200 
-              ? '✓ Notificación push enviada' 
-              : 'Error: ${response.body}'),
-            backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+              ],
+            ),
           ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  },
-),
+
+          ListTile(
+            leading: const Icon(Icons.cloud, color: Colors.purple),
+            title: const Text('Probar Push (Cloud)'),
+            subtitle: const Text('Enviar desde Firebase'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final userId = FirebaseAuth.instance.currentUser?.uid;
+              if (userId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No hay usuario logueado')),
+                );
+                return;
+              }
+
+              try {
+                final url = Uri.parse(
+                  'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
+                );
+
+                final response = await http.get(url);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(response.statusCode == 200
+                          ? '✓ Notificación push enviada'
+                          : 'Error: ${response.body}'),
+                      backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+          ),
         ],
-        
       ),
     );
   }

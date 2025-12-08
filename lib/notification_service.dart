@@ -121,32 +121,32 @@ class NotificationService {
 
   // ============ PERMISOS ============
   Future<bool> requestPermissions() async {
-  bool granted = true;
+    bool granted = true;
 
-  // Permiso de notificaciones
-  final notifStatus = await Permission.notification.request();
-  debugPrint('📱 Permiso notificación: $notifStatus');
-  granted = notifStatus.isGranted;
+    // Permiso de notificaciones
+    if (await Permission.notification.isDenied) {
+      final status = await Permission.notification.request();
+      debugPrint('📱 Permiso notificación: $status');
+      granted = status.isGranted;
+    }
 
-  // Permiso de alarmas exactas (MUY IMPORTANTE)
-  if (Platform.isAndroid) {
-    final alarmStatus = await Permission.scheduleExactAlarm.status;
-    debugPrint('⏰ Estado alarma exacta: $alarmStatus');
-    
-    if (!alarmStatus.isGranted) {
-      final result = await Permission.scheduleExactAlarm.request();
-      debugPrint('⏰ Resultado solicitud: $result');
-      
-      if (!result.isGranted) {
-        debugPrint('⚠️ ALARMAS EXACTAS NO PERMITIDAS - Abriendo configuración...');
-        // Abrir configuración de alarmas
-        await openAppSettings();
+    // Permiso de alarmas exactas (Android 12+)
+    if (Platform.isAndroid) {
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        final status = await Permission.scheduleExactAlarm.request();
+        debugPrint('⏰ Permiso alarma exacta: $status');
       }
     }
+
+    if (granted) {
+      debugPrint('✅ Permisos de notificación concedidos');
+    } else {
+      debugPrint('❌ Permisos de notificación denegados');
+    }
+
+    return granted;
   }
 
-  return granted;
-}
   // ============ NOTIFICACIÓN DE PRUEBA ============
   Future<void> showTestNotification() async {
     if (!_initialized) await initialize();

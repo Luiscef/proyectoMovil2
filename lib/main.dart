@@ -4,12 +4,26 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'notification_service.dart';
 import 'register.dart';
 import 'profile.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
+  final notificationService = NotificationService();
+  await notificationService.initializeNotifications();
+  await notificationService.initializeWorkManager(forDebugRegisterOneOff: true);
+  try {
+    final status = await Permission.notification.request();
+    if (!status.isGranted) {
+      print('Permiso de notificaciones no concedido');
+    }
+  } catch (e) {
+    print('Error al solicitar permiso: $e');
+  }
+
   runApp(const MyApp());
 }
 

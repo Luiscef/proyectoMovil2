@@ -4,7 +4,11 @@ class FirestoneService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // Crear Hábito
-  Future<void> addHabito(String name, String description, String frequency) async {
+  Future<void> addHabito(
+    String name,
+    String description,
+    String frequency,
+  ) async {
     await _db.collection('habitos').add({
       'name': name,
       'description': description,
@@ -17,7 +21,8 @@ class FirestoneService {
 
   // Leer Hábitos
   Stream<QuerySnapshot> getHabitsStream() {
-    return _db.collection('habitos')
+    return _db
+        .collection('habitos')
         .orderBy('createdAt', descending: true)
         .snapshots();
   }
@@ -48,8 +53,11 @@ class FirestoneService {
     await _db.collection('habitos').doc(id).delete();
   }
 
+  Future<void> updateProgreso(String id, int progreso) async {
+    await _db.collection('habitos').doc(id).update({'progreso': progreso});
+  }
 
-Future<void> updateProgreso(String id, int progreso) async {
-  await _db.collection('habitos').doc(id).update({'progreso': progreso});
-}
+  Future<QuerySnapshot> getHabitsSnapshot() async {
+    return await _db.collection('habits').get();
+  }
 }

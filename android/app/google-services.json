@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "1058689194132",
+    "project_id": "control-habitos",
+    "storage_bucket": "control-habitos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058689194132:android:71031fc5e495986dc77c81",
+        "android_client_info": {
+          "package_name": "com.example.control_habitos"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1058689194132-numho8ehec48psri2nhnkoedsvceem2k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.control_habitos",
+            "certificate_hash": "944d6ff1619f34e01ec0d0402664193676db909c"
+          }
+        },
+        {
+          "client_id": "1058689194132-76at03bp255ipm7d17eh78vrjg2iuvti.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHtGDbOr7RPfkdC6jQ6S5hFPjl8J7N5GY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1058689194132-76at03bp255ipm7d17eh78vrjg2iuvti.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1058689194132-4tdi69aqk4bbqfpi52ojocmcs3jv16d4.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.controlHabitos"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -6,28 +6,24 @@ import 'package:provider/provider.dart';
 import 'firebase_config.dart';
 import 'firestone_service.dart';
 import 'login.dart';
-import 'register.dart';
 import 'profile.dart';
 import 'habit_progress_page.dart';
 import 'habit_history_page.dart';
 import 'theme_provider.dart';
 import 'notification_service.dart';
-import 'fcm_service.dart';  // AGREGAR
+import 'fcm_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: firebaseConfig);
 
-  // Inicializar notificaciones locales
   final notificationService = NotificationService();
   await notificationService.initialize();
   await notificationService.requestPermissions();
 
-  // Inicializar FCM (notificaciones push)
   final fcmService = FCMService();
   await fcmService.initialize();
 
-  // Cargar preferencias del tema
   final themeProvider = ThemeProvider();
   await themeProvider.loadPreferences();
 
@@ -38,7 +34,7 @@ void main() async {
     ),
   );
 }
-// ============ APP PRINCIPAL CON MATERIALAPP ============
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -74,7 +70,6 @@ class MyApp extends StatelessWidget {
             ),
           ),
           themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          // AuthGate ahora queda como 'home' dentro de MaterialApp
           home: const AuthGate(),
         );
       },
@@ -82,7 +77,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ============ AUTH GATE ============
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -91,7 +85,6 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // Cargando
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(
@@ -107,20 +100,16 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        // Usuario autenticado
         if (snapshot.hasData && snapshot.data != null) {
           return const HabitsPage();
         }
 
-        // No autenticado - ir a Login
         return const LoginPage();
       },
     );
   }
 }
 
-
-// ============ PÁGINA PRINCIPAL DE HÁBITOS ============
 class HabitsPage extends StatefulWidget {
   const HabitsPage({super.key});
 
@@ -250,7 +239,6 @@ class _HabitsPageState extends State<HabitsPage> {
         title: const Text('Mis Hábitos'),
         centerTitle: true,
         actions: [
-          // Botón para cambiar tema
           Consumer<ThemeProvider>(
             builder: (context, themeProvider, _) {
               return IconButton(
@@ -535,7 +523,6 @@ class _HabitsPageState extends State<HabitsPage> {
               children: [
                 Row(
                   children: [
-                    // Checkbox
                     Transform.scale(
                       scale: 1.2,
                       child: Checkbox(
@@ -554,7 +541,6 @@ class _HabitsPageState extends State<HabitsPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Nombre y descripción
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -623,7 +609,6 @@ class _HabitsPageState extends State<HabitsPage> {
                         ],
                       ),
                     ),
-                    // Menú
                     PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert),
                       shape: RoundedRectangleBorder(
@@ -692,7 +677,6 @@ class _HabitsPageState extends State<HabitsPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Estadísticas
                 Row(
                   children: [
                     _buildStatChip(
@@ -791,7 +775,6 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 }
 
-// ============ DIÁLOGO PARA AGREGAR HÁBITO ============
 class AddHabitDialog extends StatefulWidget {
   const AddHabitDialog({super.key});
 
@@ -901,7 +884,6 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
               onChanged: (v) => setState(() => selectedFrequency = v ?? 'daily'),
             ),
             const SizedBox(height: 16),
-            // Recordatorio
             Container(
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey[300]!),
@@ -972,7 +954,6 @@ class _AddHabitDialogState extends State<AddHabitDialog> {
   }
 }
 
-// ============ DIÁLOGO PARA EDITAR HÁBITO ============
 class EditHabitDialog extends StatefulWidget {
   final Map<String, dynamic> habit;
   const EditHabitDialog({super.key, required this.habit});
@@ -1139,7 +1120,6 @@ class _EditHabitDialogState extends State<EditHabitDialog> {
   }
 }
 
-// ============ PÁGINA DE ESTADÍSTICAS ============
 class StatsPage extends StatelessWidget {
   const StatsPage({super.key});
 

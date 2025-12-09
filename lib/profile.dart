@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
 import 'login.dart';
 import 'theme_provider.dart';
 import 'notification_service.dart';
@@ -50,7 +49,7 @@ class _ProfilePageState extends State<ProfilePage> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading profile: $e');
+      // Error silencioso
     } finally {
       if (mounted) {
         setState(() => _loadingProfile = false);
@@ -110,7 +109,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _localImage = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Error al actualizar foto'), backgroundColor: Colors.red),
         );
       }
     }
@@ -255,7 +254,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        const SnackBar(content: Text('Error al actualizar nombre'), backgroundColor: Colors.red),
       );
     }
   }
@@ -271,7 +270,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  // ============ VER NOTIFICACIONES PENDIENTES ============
   Future<void> _showPendingNotifications() async {
     try {
       final pendingList = await NotificationService().getPendingNotifications();
@@ -338,62 +336,209 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
     } catch (e) {
-      debugPrint('Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Error al cargar recordatorios'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
-  // ============ PROBAR PUSH CLOUD ============
-  Future<void> _testCloudPush() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+  void _showTermsAndConditions() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  const Icon(Icons.description, color: Colors.teal, size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Términos y Condiciones',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Center(
+                      child: Text(
+                        'Mis Hábitos',
+                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'Última actualización: 8 de diciembre de 2025',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildSection(
+                      '1. Aceptación de los términos',
+                      'Al crear una cuenta y utilizar la aplicación Mis Hábitos, aceptas cumplir estos Términos y Condiciones, así como nuestras políticas de privacidad y uso de datos.',
+                    ),
+                    _buildSection(
+                      '2. Uso de la aplicación',
+                      'La aplicación está diseñada para ayudarte a crear, registrar y dar seguimiento a tus hábitos cotidianos diariamente. Te comprometes a utilizarla de forma responsable, sin realizar actividades que puedan afectar el funcionamiento de la app.',
+                    ),
+                    _buildSection(
+                      '3. Registro y seguridad de la cuenta',
+                      'Eres responsable de mantener la confidencialidad de tus datos y contraseñas. No está permitido que prestes tu cuenta.',
+                    ),
+                    _buildSection(
+                      '4. Datos y privacidad',
+                      'Los datos que registras sobre tus hábitos se utilizan únicamente para mostrarte estadísticas, rachas y recordatorios dentro de la aplicación. No compartimos tu información personal con nadie más, sin tu consentimiento.',
+                    ),
+                    _buildSubSection(
+                      'Cámara',
+                      'Estás de acuerdo a utilizar la cámara, las fotografías que se utilizan no están expuestas a terceros, ni las almacenamos, se usan estrictamente solo para tu uso personal con el fin de que tu experiencia sea más personalizada.',
+                    ),
+                    _buildSubSection(
+                      'Almacenamiento',
+                      'Tus datos como usuario y contraseña se almacenan en nuestra base de datos, solo con la finalidad de mantener un orden y conteo de las personas que utilizan nuestra app, datos a los que solo se tiene acceso estrictamente, pero que no se muestran a demás personas ajenas de nuestro equipo de base de datos.',
+                    ),
+                    _buildSection(
+                      '5. Licencia de uso',
+                      'Se te concede una licencia personal, ilimitada para utilizar la aplicación. No puedes modificar, ni distribuir partes del sistema sin autorización escrita de nuestro equipo.',
+                    ),
+                    _buildSection(
+                      '6. Limitación de responsabilidad',
+                      'La aplicación se ofrece "tal cual". No garantizamos resultados específicos en tus hábitos. Ya que eso es una decisión personal, ni nos hacemos responsables por pérdidas o daños derivados del uso excesivo de nuestra app.',
+                    ),
+                    _buildSection(
+                      '7. Modificaciones',
+                      'Podemos actualizar estos términos cuando consideremos sea necesario. Si realizamos cambios importantes, se te notificará mediante los medios de contacto registrados, como ser tu correo.',
+                    ),
+                    _buildSection(
+                      '8. Contacto',
+                      'Si tienes dudas sobre estos Términos y Condiciones, puedes comunicarte con el equipo de soporte de Mis Hábitos, en nuestras redes sociales, será un placer atenderte.',
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        '¡Esperamos disfrutes nuestra aplicación y Bienvenid@!!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-    if (userId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No hay usuario logueado')),
-        );
-      }
-      return;
-    }
-
-    try {
-      final url = Uri.parse(
-        'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
-      );
-
-      final response = await http.get(url);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.statusCode == 200
-                ? '✓ Notificación push enviada'
-                : 'Error: ${response.body}'),
-            backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+  Widget _buildSection(String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
+          const SizedBox(height: 8),
+          Text(
+            content,
+            style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubSection(String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            content,
+            style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleNotifications(ThemeProvider themeProvider, bool value) async {
+    final user = _auth.currentUser;
+    
+    themeProvider.toggleNotifications(value);
+    
+    if (!value) {
+      await NotificationService().cancelAllNotifications();
+    }
+    
+    if (user != null) {
+      await _fs.collection('users').doc(user.uid).set({
+        'notificationsEnabled': value,
+      }, SetOptions(merge: true));
     }
   }
 
-  // ============ CARD DE PREFERENCIAS ============
   Widget _buildPreferencesCard(ThemeProvider themeProvider) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
         children: [
-          // Tema oscuro
           SwitchListTile(
             secondary: Icon(
               themeProvider.darkMode ? Icons.dark_mode : Icons.light_mode,
@@ -411,8 +556,6 @@ class _ProfilePageState extends State<ProfilePage> {
             },
           ),
           const Divider(height: 1),
-
-          // Notificaciones
           SwitchListTile(
             secondary: Icon(
               themeProvider.notificationsEnabled
@@ -427,57 +570,23 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             value: themeProvider.notificationsEnabled,
             activeColor: Colors.teal,
-            onChanged: (v) {
-              themeProvider.toggleNotifications(v);
-            },
+            onChanged: (v) => _toggleNotifications(themeProvider, v),
           ),
           const Divider(height: 1),
-
-          // Probar notificación local
           ListTile(
-            leading: const Icon(Icons.notifications_active, color: Colors.teal),
-            title: const Text('Probar Notificación'),
-            subtitle: const Text('Enviar notificación de prueba'),
+            leading: const Icon(Icons.description, color: Colors.teal),
+            title: const Text('Términos y Condiciones'),
+            subtitle: const Text('Políticas de uso y privacidad'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () async {
-              try {
-                await NotificationService().showTestNotification();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✓ Notificación enviada'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                  );
-                }
-              }
-            },
+            onTap: _showTermsAndConditions,
           ),
           const Divider(height: 1),
-
-          // Ver recordatorios pendientes
           ListTile(
             leading: const Icon(Icons.schedule, color: Colors.orange),
             title: const Text('Ver Recordatorios'),
             subtitle: const Text('Notificaciones programadas'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showPendingNotifications,
-          ),
-          const Divider(height: 1),
-
-          // Probar push desde cloud
-          ListTile(
-            leading: const Icon(Icons.cloud, color: Colors.purple),
-            title: const Text('Probar Push (Cloud)'),
-            subtitle: const Text('Enviar desde Firebase'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _testCloudPush,
           ),
         ],
       ),
@@ -542,8 +651,6 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             const SizedBox(height: 10),
-
-            // FOTO DE PERFIL
             Stack(
               children: [
                 Container(
@@ -594,10 +701,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
-
-            // NOMBRE
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -614,16 +718,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ],
             ),
-
-            // EMAIL
             Text(
               user?.email ?? 'correo@ejemplo.com',
               style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
-
             const SizedBox(height: 32),
-
-            // INFORMACIÓN
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -655,10 +754,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // PREFERENCIAS
             const Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -670,10 +766,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
             _buildPreferencesCard(themeProvider),
-
             const SizedBox(height: 32),
-
-            // CERRAR SESIÓN
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -688,7 +781,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
           ],
         ),

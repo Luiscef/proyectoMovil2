@@ -184,106 +184,99 @@ class NotificationService {
 
   // ============ PROGRAMAR RECORDATORIO DE HÁBITO (5 MINUTOS ANTES) ============
   Future<void> scheduleHabitReminder({
-    required String habitId,
-    required String habitName,
-    required int hour,
-    required int minute,
-    required String frequency,
-  }) async {
-    if (!_initialized) await initialize();
+  required String habitId,
+  required String habitName,
+  required int hour,
+  required int minute,
+  required String frequency,
+}) async {
+  if (!_initialized) await initialize();
+  if (!await _areNotificationsEnabledInPrefs()) {
+    debugPrint('⚠️ Notificaciones desactivadas - no se programó: $habitName');
+    return;
+  }
+  
+  // Generar ID numérico único
+  final notificationId = _generateNotificationId(habitId);
 
-    // Generar ID numérico único
-    final notificationId = _generateNotificationId(habitId);
+  // Cancelar notificación anterior si existe
+  await cancelHabitReminder(habitId);
 
-    // Cancelar notificación anterior si existe
-    await cancelHabitReminder(habitId);
+  // Guardar relación habitId -> notificationId
+  await _saveHabitNotificationId(habitId, notificationId);
 
-    // Guardar relación habitId -> notificationId
-    await _saveHabitNotificationId(habitId, notificationId);
+  // Usar la hora exacta del hábito (sin modificar)
+  final scheduledTime = _nextInstanceOfTime(hour, minute);
 
-    // Calcular hora de notificación (5 minutos antes)
-    int notifHour = hour;
-    int notifMinute = minute - 5;
+  debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  debugPrint('⏰ PROGRAMANDO NOTIFICACIÓN:');
+  debugPrint('   Hábito: $habitName');
+  debugPrint('   Hora: ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
+  debugPrint('   Programada para: $scheduledTime');
+  debugPrint('   ID: $notificationId');
+  debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    if (notifMinute < 0) {
-      notifMinute = 60 + notifMinute;
-      notifHour = hour - 1;
-      if (notifHour < 0) {
-        notifHour = 23;
-      }
-    }
+  const androidDetails = AndroidNotificationDetails(
+    'habits_reminder_channel',
+    'Recordatorios de Hábitos',
+    channelDescription: 'Recordatorios para completar tus hábitos',
+    importance: Importance.high,
+    priority: Priority.high,
+    icon: '@mipmap/ic_launcher',
+    playSound: true,
+    enableVibration: true,
+    category: AndroidNotificationCategory.reminder,
+    visibility: NotificationVisibility.public,
+    fullScreenIntent: true,
+  );
 
-    final scheduledTime = _nextInstanceOfTime(notifHour, notifMinute);
+  const iosDetails = DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+  );
 
-    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    debugPrint('⏰ PROGRAMANDO NOTIFICACIÓN:');
-    debugPrint('   Hábito: $habitName');
-    debugPrint('   Hora del hábito: ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
-    debugPrint('   Notificación: ${notifHour.toString().padLeft(2, '0')}:${notifMinute.toString().padLeft(2, '0')}');
-    debugPrint('   Programada para: $scheduledTime');
-    debugPrint('   ID: $notificationId');
-    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  const details = NotificationDetails(
+    android: androidDetails,
+    iOS: iosDetails,
+  );
 
-    const androidDetails = AndroidNotificationDetails(
-      'habits_reminder_channel',
-      'Recordatorios de Hábitos',
-      channelDescription: 'Recordatorios para completar tus hábitos',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
-      playSound: true,
-      enableVibration: true,
-      category: AndroidNotificationCategory.reminder,
-      visibility: NotificationVisibility.public,
-      fullScreenIntent: true,
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    // Determinar repetición según frecuencia
-    DateTimeComponents? matchComponents;
-    switch (frequency.toLowerCase()) {
-      case 'diario':
-      case 'daily':
-        matchComponents = DateTimeComponents.time;
-        break;
-      case 'semanal':
-      case 'weekly':
-        matchComponents = DateTimeComponents.dayOfWeekAndTime;
-        break;
-      default:
-        matchComponents = DateTimeComponents.time;
-    }
-
-    try {
-      await _notifications.zonedSchedule(
-        notificationId,
-        '⏰ ¡Prepárate!',
-        'En 5 minutos: $habitName',
-        scheduledTime,
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: matchComponents,
-        payload: habitId,
-      );
-
-      debugPrint('✅ Recordatorio programado exitosamente');
-    } catch (e) {
-      debugPrint('❌ Error programando notificación: $e');
-    }
+  // Determinar repetición según frecuencia
+  DateTimeComponents? matchComponents;
+  switch (frequency.toLowerCase()) {
+    case 'diario':
+    case 'daily':
+      matchComponents = DateTimeComponents.time;
+      break;
+    case 'semanal':
+    case 'weekly':
+      matchComponents = DateTimeComponents.dayOfWeekAndTime;
+      break;
+    default:
+      matchComponents = DateTimeComponents.time;
   }
 
+  try {
+    await _notifications.zonedSchedule(
+      notificationId,
+      '⏰ ¡Recordatorio!',
+      habitName,
+      scheduledTime,
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: matchComponents,
+      payload: habitId,
+    );
+
+    debugPrint('✅ Recordatorio programado exitosamente');
+  } catch (e) {
+    debugPrint('❌ Error programando notificación: $e');
+  }
+}
+
+    
   // ============ CANCELAR RECORDATORIO ============
   Future<void> cancelHabitReminder(String habitId) async {
     final notificationId = await _getHabitNotificationId(habitId);
@@ -348,4 +341,9 @@ class NotificationService {
     final status = await Permission.notification.status;
     return status.isGranted;
   }
+  // Agregar este método (después de areNotificationsEnabled)
+Future<bool> _areNotificationsEnabledInPrefs() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool('notifications') ?? true;
+}
 }

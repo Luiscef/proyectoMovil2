@@ -35,7 +35,7 @@ dependencies:
   cloud_firestore: ^4.17.5
   firebase_storage: ^11.7.7
   firebase_messaging: ^14.9.4
-  
+  url_launcher: ^6.2.1
   # Google Sign In - VERSIÓN ESTABLE
   google_sign_in: ^6.1.6
   
@@ -56,6 +56,7 @@ flutter_launcher_icons:
   min_sdk_android: 21
   adaptive_icon_background: "#009688"  # Color teal de fondo
 
+  
 
 dev_dependencies:
   flutter_test:

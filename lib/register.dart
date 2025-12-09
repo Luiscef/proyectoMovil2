@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'main.dart';
-import 'login.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -22,6 +23,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _loading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _acceptedTerms = false;
 
   @override
   void dispose() {
@@ -37,7 +39,11 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _loading = v);
   }
 
-  // Crear documento del usuario en Firestore
+  Future<void> _openTermsAndConditions() async {
+  final Uri url = Uri.parse('https://luiscef.github.io/proyectoMovil2/lib/privacy/index.html#');
+  await launchUrl(url, mode: LaunchMode.externalApplication);
+}
+
   Future<void> _createUserDocument(User user, String displayName) async {
     await _firestore.collection('users').doc(user.uid).set({
       'displayName': displayName,
@@ -51,7 +57,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> registerWithEmail() async {
-    // Validaciones
+    if (!_acceptedTerms) {
+      _showError('Debes aceptar los términos y condiciones');
+      return;
+    }
     if (nameController.text.trim().isEmpty) {
       _showError('Por favor ingresa tu nombre');
       return;
@@ -75,24 +84,19 @@ class _RegisterPageState extends State<RegisterPage> {
 
     await _setLoading(true);
     try {
-      // Crear usuario en Firebase Auth
       final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text,
       );
 
       if (credential.user != null) {
-        // Actualizar nombre en Auth
         await credential.user!.updateDisplayName(nameController.text.trim());
-        
-        // Crear documento en Firestore
         await _createUserDocument(credential.user!, nameController.text.trim());
       }
 
       if (!mounted) return;
       _showSuccess('¡Cuenta creada exitosamente!');
 
-      // Navegar a la página principal
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const HabitsPage()),
@@ -108,6 +112,11 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> registerWithGoogle() async {
+    if (!_acceptedTerms) {
+      _showError('Debes aceptar los términos y condiciones');
+      return;
+    }
+
     await _setLoading(true);
     try {
       const webClientID = "1058689194132-76at03bp255ipm7d17eh78vrjg2iuvti.apps.googleusercontent.com";
@@ -130,7 +139,6 @@ class _RegisterPageState extends State<RegisterPage> {
       final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       
       if (userCredential.user != null) {
-        // Verificar si es un usuario nuevo
         final userDoc = await _firestore
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -259,7 +267,6 @@ class _RegisterPageState extends State<RegisterPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Icono
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -273,8 +280,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                
-                // Título
                 const Text(
                   'Crear cuenta',
                   style: TextStyle(
@@ -289,8 +294,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 35),
-                
-                // Campo Nombre
                 TextField(
                   controller: nameController,
                   textInputAction: TextInputAction.next,
@@ -301,8 +304,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Campo Email
                 TextField(
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -313,8 +314,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Campo Contraseña
                 TextField(
                   controller: passwordController,
                   obscureText: _obscurePassword,
@@ -333,8 +332,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Campo Confirmar Contraseña
                 TextField(
                   controller: confirmPasswordController,
                   obscureText: _obscureConfirmPassword,
@@ -354,8 +351,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                
-                // Hint de contraseña
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Padding(
@@ -369,9 +364,48 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: Checkbox(
+                        value: _acceptedTerms,
+                        onChanged: (value) {
+                          setState(() => _acceptedTerms = value ?? false);
+                        },
+                        activeColor: Colors.deepPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                          children: [
+                            const TextSpan(text: 'Acepto los '),
+                            TextSpan(
+                              text: 'Términos y Condiciones',
+                              style: const TextStyle(
+                                color: Colors.deepPurple,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = _openTermsAndConditions,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 25),
-                
-                // Botón Registrarse
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -401,8 +435,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                
-                // Divisor
                 Row(
                   children: [
                     Expanded(
@@ -418,8 +450,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                
-                // Botón Google
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
@@ -443,8 +473,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                 ),
                 const SizedBox(height: 30),
-                
-                // Enlace a Login
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

@@ -8,7 +8,9 @@ class ThemeProvider extends ChangeNotifier {
   bool _darkMode = false;
   bool _notificationsEnabled = true;
   
+  // Getters
   bool get darkMode => _darkMode;
+  bool get isDarkMode => _darkMode;  // ← Este falta
   bool get notificationsEnabled => _notificationsEnabled;
   
   ThemeData get currentTheme => _darkMode ? _darkTheme : _lightTheme;
@@ -27,7 +29,7 @@ class ThemeProvider extends ChangeNotifier {
     colorSchemeSeed: Colors.teal,
   );
   
-  // Cargar preferencias guardadas
+  // ← Este método falta
   Future<void> loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     _darkMode = prefs.getBool(_darkModeKey) ?? false;
@@ -35,15 +37,15 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
   
-  // Cambiar tema
-  Future<void> toggleTheme(bool value) async {
-    _darkMode = value;
+  // ← El parámetro debe ser opcional [bool? value]
+  Future<void> toggleTheme([bool? value]) async {
+    final newValue = value ?? !_darkMode;
+    _darkMode = newValue;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_darkModeKey, value);
+    await prefs.setBool(_darkModeKey, newValue);
     notifyListeners();
   }
   
-  // Cambiar notificaciones
   Future<void> toggleNotifications(bool value) async {
     _notificationsEnabled = value;
     final prefs = await SharedPreferences.getInstance();

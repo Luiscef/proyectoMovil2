@@ -5,9 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'theme_provider.dart';
+import 'notification_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -49,7 +49,7 @@ class _ProfilePageState extends State<ProfilePage> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading profile: $e');
+      // Error silencioso
     } finally {
       if (mounted) {
         setState(() => _loadingProfile = false);
@@ -79,17 +79,14 @@ class _ProfilePageState extends State<ProfilePage> {
         return;
       }
 
-      // Subir imagen a Firebase Storage
       final ref = _storage.ref().child('profile_photos/${user.uid}.jpg');
       await ref.putFile(File(image.path));
       final downloadUrl = await ref.getDownloadURL();
 
-      // Actualizar Firestore
       await _fs.collection('users').doc(user.uid).update({
         'photoUrl': downloadUrl,
       });
 
-      // Actualizar perfil de Auth
       await user.updatePhotoURL(downloadUrl);
 
       if (mounted) {
@@ -112,7 +109,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _localImage = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Error al actualizar foto'), backgroundColor: Colors.red),
         );
       }
     }
@@ -231,30 +228,34 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _loading = true);
 
     try {
-      await user.updateDisplayName(name);
-      await _fs.collection('users').doc(user.uid).update({
+      await _fs.collection('users').doc(user.uid).set({
         'displayName': name,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      try {
+        await user.updateDisplayName(name);
+      } catch (_) {}
+
+      if (!mounted) return;
+
+      setState(() {
+        _nameCtrl.text = name;
+        _loading = false;
       });
 
-      if (mounted) {
-        setState(() {
-          _nameCtrl.text = name;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Nombre actualizado'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Nombre actualizado'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error al actualizar nombre'), backgroundColor: Colors.red),
+      );
     }
   }
 
@@ -266,6 +267,269 @@ class _ProfilePageState extends State<ProfilePage> {
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (route) => false,
       );
+    }
+  }
+
+  Future<void> _showPendingNotifications() async {
+    try {
+      final pendingList = await NotificationService().getPendingNotifications();
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.schedule, color: Colors.teal),
+              const SizedBox(width: 8),
+              Text('Recordatorios (${pendingList.length})'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 300,
+            child: pendingList.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+                        SizedBox(height: 8),
+                        Text('No hay recordatorios programados'),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: pendingList.length,
+                    itemBuilder: (_, i) {
+                      final item = pendingList[i];
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.alarm, color: Colors.teal),
+                          title: Text(item.title ?? 'Sin título'),
+                          subtitle: Text(item.body ?? ''),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await NotificationService().cancelAllNotifications();
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Todas canceladas')),
+                  );
+                }
+              },
+              child: const Text('Cancelar Todas', style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al cargar recordatorios'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showTermsAndConditions() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  const Icon(Icons.description, color: Colors.teal, size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Términos y Condiciones',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Center(
+                      child: Text(
+                        'Mis Hábitos',
+                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'Última actualización: 8 de diciembre de 2025',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildSection(
+                      '1. Aceptación de los términos',
+                      'Al crear una cuenta y utilizar la aplicación Mis Hábitos, aceptas cumplir estos Términos y Condiciones, así como nuestras políticas de privacidad y uso de datos.',
+                    ),
+                    _buildSection(
+                      '2. Uso de la aplicación',
+                      'La aplicación está diseñada para ayudarte a crear, registrar y dar seguimiento a tus hábitos cotidianos diariamente. Te comprometes a utilizarla de forma responsable, sin realizar actividades que puedan afectar el funcionamiento de la app.',
+                    ),
+                    _buildSection(
+                      '3. Registro y seguridad de la cuenta',
+                      'Eres responsable de mantener la confidencialidad de tus datos y contraseñas. No está permitido que prestes tu cuenta.',
+                    ),
+                    _buildSection(
+                      '4. Datos y privacidad',
+                      'Los datos que registras sobre tus hábitos se utilizan únicamente para mostrarte estadísticas, rachas y recordatorios dentro de la aplicación. No compartimos tu información personal con nadie más, sin tu consentimiento.',
+                    ),
+                    _buildSubSection(
+                      'Cámara',
+                      'Estás de acuerdo a utilizar la cámara, las fotografías que se utilizan no están expuestas a terceros, ni las almacenamos, se usan estrictamente solo para tu uso personal con el fin de que tu experiencia sea más personalizada.',
+                    ),
+                    _buildSubSection(
+                      'Almacenamiento',
+                      'Tus datos como usuario y contraseña se almacenan en nuestra base de datos, solo con la finalidad de mantener un orden y conteo de las personas que utilizan nuestra app, datos a los que solo se tiene acceso estrictamente, pero que no se muestran a demás personas ajenas de nuestro equipo de base de datos.',
+                    ),
+                    _buildSection(
+                      '5. Licencia de uso',
+                      'Se te concede una licencia personal, ilimitada para utilizar la aplicación. No puedes modificar, ni distribuir partes del sistema sin autorización escrita de nuestro equipo.',
+                    ),
+                    _buildSection(
+                      '6. Limitación de responsabilidad',
+                      'La aplicación se ofrece "tal cual". No garantizamos resultados específicos en tus hábitos. Ya que eso es una decisión personal, ni nos hacemos responsables por pérdidas o daños derivados del uso excesivo de nuestra app.',
+                    ),
+                    _buildSection(
+                      '7. Modificaciones',
+                      'Podemos actualizar estos términos cuando consideremos sea necesario. Si realizamos cambios importantes, se te notificará mediante los medios de contacto registrados, como ser tu correo.',
+                    ),
+                    _buildSection(
+                      '8. Contacto',
+                      'Si tienes dudas sobre estos Términos y Condiciones, puedes comunicarte con el equipo de soporte de Mis Hábitos, en nuestras redes sociales, será un placer atenderte.',
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        '¡Esperamos disfrutes nuestra aplicación y Bienvenid@!!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            content,
+            style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubSection(String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            content,
+            style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleNotifications(ThemeProvider themeProvider, bool value) async {
+    final user = _auth.currentUser;
+    
+    themeProvider.toggleNotifications(value);
+    
+    if (!value) {
+      await NotificationService().cancelAllNotifications();
+    }
+    
+    if (user != null) {
+      await _fs.collection('users').doc(user.uid).set({
+        'notificationsEnabled': value,
+      }, SetOptions(merge: true));
     }
   }
 
@@ -306,10 +570,60 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             value: themeProvider.notificationsEnabled,
             activeColor: Colors.teal,
-            onChanged: (v) {
-              themeProvider.toggleNotifications(v);
-            },
+            onChanged: (v) => _toggleNotifications(themeProvider, v),
           ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.description, color: Colors.teal),
+            title: const Text('Términos y Condiciones'),
+            subtitle: const Text('Políticas de uso y privacidad'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showTermsAndConditions,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.schedule, color: Colors.orange),
+            title: const Text('Ver Recordatorios'),
+            subtitle: const Text('Notificaciones programadas'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showPendingNotifications,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool editable = false,
+    VoidCallback? onEdit,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.teal, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                Text(value, style: const TextStyle(fontSize: 16)),
+              ],
+            ),
+          ),
+          if (editable && onEdit != null)
+            IconButton(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit, size: 20),
+              color: Colors.teal,
+            ),
         ],
       ),
     );
@@ -337,8 +651,6 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             const SizedBox(height: 10),
-
-            // ===== FOTO DE PERFIL =====
             Stack(
               children: [
                 Container(
@@ -383,58 +695,37 @@ class _ProfilePageState extends State<ProfilePage> {
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2),
                       ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                     ),
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
-
-            // ===== NOMBRE CON BOTÓN EDITAR =====
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Flexible(
                   child: Text(
                     _nameCtrl.text.isEmpty ? 'Sin nombre' : _nameCtrl.text,
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 IconButton(
                   onPressed: _showEditNameDialog,
                   icon: const Icon(Icons.edit, color: Colors.teal),
-                  tooltip: 'Editar nombre',
                 ),
               ],
             ),
-
-            // ===== EMAIL (SOLO LECTURA) =====
             Text(
               user?.email ?? 'correo@ejemplo.com',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
-
             const SizedBox(height: 32),
-
-            // ===== CARD DE INFORMACIÓN =====
             Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -442,10 +733,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   children: [
                     const Text(
                       'Información de la cuenta',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
                     _buildInfoRow(
@@ -466,28 +754,19 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // ===== PREFERENCIAS =====
             const Align(
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(left: 4, bottom: 8),
                 child: Text(
                   'Preferencias',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
             _buildPreferencesCard(themeProvider),
-
             const SizedBox(height: 32),
-
-            // ===== BOTÓN CERRAR SESIÓN =====
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -498,58 +777,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   backgroundColor: Colors.red,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(
-    IconData icon,
-    String label,
-    String value, {
-    bool editable = false,
-    VoidCallback? onEdit,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.teal, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-          if (editable && onEdit != null)
-            IconButton(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 20),
-              color: Colors.teal,
-            ),
-        ],
       ),
     );
   }

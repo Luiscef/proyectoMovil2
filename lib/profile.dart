@@ -5,11 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'login.dart';
 import 'theme_provider.dart';
 import 'notification_service.dart';
-import 'package:http/http.dart' as http;
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -81,17 +80,14 @@ class _ProfilePageState extends State<ProfilePage> {
         return;
       }
 
-      // Subir imagen a Firebase Storage
       final ref = _storage.ref().child('profile_photos/${user.uid}.jpg');
       await ref.putFile(File(image.path));
       final downloadUrl = await ref.getDownloadURL();
 
-      // Actualizar Firestore
       await _fs.collection('users').doc(user.uid).update({
         'photoUrl': downloadUrl,
       });
 
-      // Actualizar perfil de Auth
       await user.updatePhotoURL(downloadUrl);
 
       if (mounted) {
@@ -227,48 +223,42 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _updateName(String name) async {
-  final user = _auth.currentUser;
-  if (user == null) return;
+    final user = _auth.currentUser;
+    if (user == null) return;
 
-  setState(() => _loading = true);
+    setState(() => _loading = true);
 
-  try {
-    // Guardar en Firestore (merge para no sobreescribir)
-    await _fs.collection('users').doc(user.uid).set({
-      'displayName': name,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    // Opcional: actualizar también el displayName en Firebase Auth
     try {
-      await user.updateDisplayName(name);
-    } catch (_) {
-      // no fatal si falla el update en Auth
+      await _fs.collection('users').doc(user.uid).set({
+        'displayName': name,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      try {
+        await user.updateDisplayName(name);
+      } catch (_) {}
+
+      if (!mounted) return;
+
+      setState(() {
+        _nameCtrl.text = name;
+        _loading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Nombre actualizado'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
     }
-
-    if (!mounted) return;
-
-    // Actualizamos el controlador y forzamos reconstrucción para ver el cambio al instante
-    setState(() {
-      _nameCtrl.text = name;
-      _loading = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('✓ Nombre actualizado'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  } catch (e) {
-    if (!mounted) return;
-    setState(() => _loading = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-    );
   }
-}
-
 
   Future<void> _signOut() async {
     await _auth.signOut();
@@ -281,12 +271,129 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // ============ VER NOTIFICACIONES PENDIENTES ============
+  Future<void> _showPendingNotifications() async {
+    try {
+      final pendingList = await NotificationService().getPendingNotifications();
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.schedule, color: Colors.teal),
+              const SizedBox(width: 8),
+              Text('Recordatorios (${pendingList.length})'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 300,
+            child: pendingList.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+                        SizedBox(height: 8),
+                        Text('No hay recordatorios programados'),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: pendingList.length,
+                    itemBuilder: (_, i) {
+                      final item = pendingList[i];
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.alarm, color: Colors.teal),
+                          title: Text(item.title ?? 'Sin título'),
+                          subtitle: Text(item.body ?? ''),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await NotificationService().cancelAllNotifications();
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Todas canceladas')),
+                  );
+                }
+              },
+              child: const Text('Cancelar Todas', style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ============ PROBAR PUSH CLOUD ============
+  Future<void> _testCloudPush() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No hay usuario logueado')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final url = Uri.parse(
+        'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
+      );
+
+      final response = await http.get(url);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.statusCode == 200
+                ? '✓ Notificación push enviada'
+                : 'Error: ${response.body}'),
+            backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ============ CARD DE PREFERENCIAS ============
   Widget _buildPreferencesCard(ThemeProvider themeProvider) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
         children: [
+          // Tema oscuro
           SwitchListTile(
             secondary: Icon(
               themeProvider.darkMode ? Icons.dark_mode : Icons.light_mode,
@@ -303,7 +410,9 @@ class _ProfilePageState extends State<ProfilePage> {
               themeProvider.toggleTheme(v);
             },
           ),
-          const Divider(),
+          const Divider(height: 1),
+
+          // Notificaciones
           SwitchListTile(
             secondary: Icon(
               themeProvider.notificationsEnabled
@@ -322,173 +431,27 @@ class _ProfilePageState extends State<ProfilePage> {
               themeProvider.toggleNotifications(v);
             },
           ),
-          // Después de las preferencias, antes del botón cerrar sesión:
+          const Divider(height: 1),
 
-          const SizedBox(height: 16),
-
-          // BOTÓN PARA PROBAR NOTIFICACIONES
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.notifications_active, color: Colors.teal),
-                  title: const Text('Probar Notificación'),
-                  subtitle: const Text('Enviar notificación de prueba ahora'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    await NotificationService().showTestNotification();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('✓ Notificación de prueba enviada'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.schedule, color: Colors.orange),
-                  title: const Text('Ver Recordatorios Activos'),
-                  subtitle: const Text('Notificaciones programadas'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    try {
-                      final raw = await NotificationService().getPendingNotifications();
-
-                      // Normalizar a lista dinámica
-                      List<dynamic> pendingList = [];
-                      if (raw == null) {
-                        pendingList = [];
-                      } else if (raw is List) {
-                        pendingList = raw;
-                      } else {
-                        // Si viene un único objeto, lo convertimos a lista de 1
-                        pendingList = [raw];
-                      }
-
-                      // Helper para extraer title/body de distintos formatos
-                      String extractTitle(dynamic item) {
-                        if (item == null) return 'Sin título';
-                        try {
-                          if (item is Map && item.containsKey('title')) return '${item['title']}';
-                          final t = (item as dynamic).title;
-                          if (t != null) return '$t';
-                        } catch (_) {}
-                        return 'Sin título';
-                      }
-
-                      String extractBody(dynamic item) {
-                        if (item == null) return '';
-                        try {
-                          if (item is Map && item.containsKey('body')) return '${item['body']}';
-                          final b = (item as dynamic).body;
-                          if (b != null) return '$b';
-                        } catch (_) {}
-                        return '';
-                      }
-
-                      if (context.mounted) {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: Row(
-                              children: [
-                                const Icon(Icons.schedule, color: Colors.teal),
-                                const SizedBox(width: 8),
-                                Text('Recordatorios (${pendingList.length})'),
-                              ],
-                            ),
-                            content: SizedBox(
-                              width: double.maxFinite,
-                              height: 300,
-                              child: pendingList.isEmpty
-                                  ? const Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.notifications_off, size: 48, color: Colors.grey),
-                                          SizedBox(height: 8),
-                                          Text('No hay recordatorios programados'),
-                                        ],
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: pendingList.length,
-                                      itemBuilder: (_, i) {
-                                        final item = pendingList[i];
-                                        final title = extractTitle(item);
-                                        final body = extractBody(item);
-                                        return Card(
-                                          child: ListTile(
-                                            leading: const Icon(Icons.alarm, color: Colors.teal),
-                                            title: Text(title),
-                                            subtitle: Text(body),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Cerrar'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-                    } catch (e, st) {
-                      debugPrint('Error obteniendo recordatorios: $e\n$st');
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                        );
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-
+          // Probar notificación local
           ListTile(
-            leading: const Icon(Icons.cloud, color: Colors.purple),
-            title: const Text('Probar Push (Cloud)'),
-            subtitle: const Text('Enviar desde Firebase'),
+            leading: const Icon(Icons.notifications_active, color: Colors.teal),
+            title: const Text('Probar Notificación'),
+            subtitle: const Text('Enviar notificación de prueba'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
-              final userId = FirebaseAuth.instance.currentUser?.uid;
-              if (userId == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('No hay usuario logueado')),
-                );
-                return;
-              }
-
               try {
-                final url = Uri.parse(
-                  'https://us-central1-control-habitos.cloudfunctions.net/sendTestNotification?userId=$userId'
-                );
-
-                final response = await http.get(url);
-
-                if (context.mounted) {
+                await NotificationService().showTestNotification();
+                if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(response.statusCode == 200
-                          ? '✓ Notificación push enviada'
-                          : 'Error: ${response.body}'),
-                      backgroundColor: response.statusCode == 200 ? Colors.green : Colors.red,
+                    const SnackBar(
+                      content: Text('✓ Notificación enviada'),
+                      backgroundColor: Colors.green,
                     ),
                   );
                 }
               } catch (e) {
-                if (context.mounted) {
+                if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
                   );
@@ -496,6 +459,62 @@ class _ProfilePageState extends State<ProfilePage> {
               }
             },
           ),
+          const Divider(height: 1),
+
+          // Ver recordatorios pendientes
+          ListTile(
+            leading: const Icon(Icons.schedule, color: Colors.orange),
+            title: const Text('Ver Recordatorios'),
+            subtitle: const Text('Notificaciones programadas'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showPendingNotifications,
+          ),
+          const Divider(height: 1),
+
+          // Probar push desde cloud
+          ListTile(
+            leading: const Icon(Icons.cloud, color: Colors.purple),
+            title: const Text('Probar Push (Cloud)'),
+            subtitle: const Text('Enviar desde Firebase'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _testCloudPush,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool editable = false,
+    VoidCallback? onEdit,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.teal, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                Text(value, style: const TextStyle(fontSize: 16)),
+              ],
+            ),
+          ),
+          if (editable && onEdit != null)
+            IconButton(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit, size: 20),
+              color: Colors.teal,
+            ),
         ],
       ),
     );
@@ -524,7 +543,7 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             const SizedBox(height: 10),
 
-            // ===== FOTO DE PERFIL =====
+            // FOTO DE PERFIL
             Stack(
               children: [
                 Container(
@@ -569,11 +588,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2),
                       ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                     ),
                   ),
                 ),
@@ -582,45 +597,36 @@ class _ProfilePageState extends State<ProfilePage> {
 
             const SizedBox(height: 24),
 
-            // ===== NOMBRE CON BOTÓN EDITAR =====
+            // NOMBRE
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Flexible(
                   child: Text(
                     _nameCtrl.text.isEmpty ? 'Sin nombre' : _nameCtrl.text,
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 IconButton(
                   onPressed: _showEditNameDialog,
                   icon: const Icon(Icons.edit, color: Colors.teal),
-                  tooltip: 'Editar nombre',
                 ),
               ],
             ),
 
-            // ===== EMAIL (SOLO LECTURA) =====
+            // EMAIL
             Text(
               user?.email ?? 'correo@ejemplo.com',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
 
             const SizedBox(height: 32),
 
-            // ===== CARD DE INFORMACIÓN =====
+            // INFORMACIÓN
             Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -628,10 +634,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   children: [
                     const Text(
                       'Información de la cuenta',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
                     _buildInfoRow(
@@ -655,17 +658,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
             const SizedBox(height: 16),
 
-            // ===== PREFERENCIAS =====
+            // PREFERENCIAS
             const Align(
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(left: 4, bottom: 8),
                 child: Text(
                   'Preferencias',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -673,7 +673,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
             const SizedBox(height: 32),
 
-            // ===== BOTÓN CERRAR SESIÓN =====
+            // CERRAR SESIÓN
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -684,9 +684,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   backgroundColor: Colors.red,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ),
@@ -694,48 +692,6 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 20),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(
-    IconData icon,
-    String label,
-    String value, {
-    bool editable = false,
-    VoidCallback? onEdit,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.teal, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-          if (editable && onEdit != null)
-            IconButton(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 20),
-              color: Colors.teal,
-            ),
-        ],
       ),
     );
   }

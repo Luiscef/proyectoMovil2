@@ -555,7 +555,7 @@ class _ProfilePageState extends State<ProfilePage> {
               themeProvider.toggleTheme(v);
             },
           ),
-          const Divider(height: 1),
+          /*const Divider(height: 1),
           SwitchListTile(
             secondary: Icon(
               themeProvider.notificationsEnabled
@@ -571,7 +571,7 @@ class _ProfilePageState extends State<ProfilePage> {
             value: themeProvider.notificationsEnabled,
             activeColor: Colors.teal,
             onChanged: (v) => _toggleNotifications(themeProvider, v),
-          ),
+          ),*/
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.description, color: Colors.teal),

@@ -1,4 +1,3 @@
-// lib/profile_controller.dart
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -93,7 +92,10 @@ class ProfileController {
     }
   }
 
-  Future<void> updateProfile({required String name, required String email}) async {
+  Future<void> updateProfile({
+    required String name,
+    required String email,
+  }) async {
     final uid = await _getProfileDocId();
     await _firestoreRaw.collection('users').doc(uid).set({
       'displayName': name,
@@ -117,7 +119,10 @@ class ProfileController {
     this.email = email;
   }
 
-  Future<bool> reauthenticateAndUpdateEmail(String currentPassword, String newEmail) async {
+  Future<bool> reauthenticateAndUpdateEmail(
+    String currentPassword,
+    String newEmail,
+  ) async {
     final user = _auth.currentUser;
     if (user == null || user.email == null) return false;
     final credential = EmailAuthProvider.credential(
@@ -158,7 +163,8 @@ class ProfileController {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
+
   Future<void> logout() async {
-  await _auth.signOut();
-}
+    await _auth.signOut();
+  }
 }
